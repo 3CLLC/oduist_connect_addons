@@ -348,29 +348,66 @@ export class Phone extends Component {
     }
 
     async _busPhoneMakeForward(phoneNumber) {
-        if (this.session) {
-            // TODO: fix forward
-            // this.session.sendDTMF(`${this.attended_transfer_sequence}${phoneNumber}#`)
+        console.log('Forward requested to:', phoneNumber)
+        
+        try {
+            // Call backend to perform blind transfer using TwiML
+            const result = await this.orm.call('connect.transfer_wizard', 'execute_transfer', [], {
+                phone_number: phoneNumber,
+                transfer_type: 'blind',
+                call_id: this.call_id,
+                session_id: this.session ? this.session.parameters.CallSid : null
+            })
+            
+            if (result && result.success) {
+                console.log('Forward completed successfully')
+                this.notify('Call forwarded successfully', {type: 'success'})
+                // End the current call UI since call was transferred
+                await this.endCall()
+            } else {
+                console.error('Forward failed:', result)
+                this.notify('Forward failed: ' + (result.error || 'Unknown error'), {type: 'warning'})
+            }
+        } catch (error) {
+            console.error('Forward error:', error)
+            this.notify('Forward failed: ' + error.message, {type: 'warning'})
+        } finally {
+            // Reset UI state
+            this.state.isDialingPanel = true
+            this.state.isForward = false
+            this.state.isContacts = false
         }
-        this.bc.postMessage({event: "tbcForward", params: {phoneNumber}})
-        this.state.isDialingPanel = true
-        // this.state.isCallForwarded = true
-        this.state.isForward = false
-        this.state.isContacts = false
     }
 
     async _busPhoneMakeTransfer(phoneNumber) {
-        // TODO: Implement proper transfer logic with TwiML
-        // For now, temporarily log the transfer attempt
         console.log('Transfer requested to:', phoneNumber)
         
-        // Reset UI state after transfer attempt
-        this.state.isDialingPanel = true
-        this.state.isTransfer = false
-        this.state.isContacts = false
-        
-        // TODO: Replace this with actual backend call to transfer wizard
-        console.warn('Transfer functionality not yet implemented.')
+        try {
+            // Call backend to perform attended transfer using TwiML
+            const result = await this.orm.call('connect.transfer_wizard', 'execute_transfer', [], {
+                phone_number: phoneNumber,
+                transfer_type: 'attended',
+                call_id: this.call_id,
+                session_id: this.session ? this.session.parameters.CallSid : null
+            })
+            
+            if (result && result.success) {
+                console.log('Transfer initiated successfully')
+                this.notify('Transfer initiated - you can now speak with the recipient', {type: 'info'})
+                // For attended transfer, we stay on the call until transfer is completed
+            } else {
+                console.error('Transfer failed:', result)
+                this.notify('Transfer failed: ' + (result.error || 'Unknown error'), {type: 'warning'})
+            }
+        } catch (error) {
+            console.error('Transfer error:', error)
+            this.notify('Transfer failed: ' + error.message, {type: 'warning'})
+        } finally {
+            // Reset UI state
+            this.state.isDialingPanel = true
+            this.state.isTransfer = false
+            this.state.isContacts = false
+        }
     }
 
     async prepareCall(props) {
