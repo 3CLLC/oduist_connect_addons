@@ -257,7 +257,7 @@ class PhoneWizard(models.TransientModel):
 
     def _find_extension_by_client_identity(self, client_identity):
         """
-        Find extension number from client identity (reverse lookup)
+        Find extension number from client identity (reverse lookup) - fixed search
         """
         try:
             # Remove 'client:' prefix
@@ -271,9 +271,11 @@ class PhoneWizard(models.TransientModel):
             ], limit=1)
             
             if user:
-                # Find extension pointing to this user
+                # Find extension pointing to this user using stored fields
+                # We can't search on 'dst' directly, so search by model and res_id
                 extension = self.env['connect.exten'].search([
-                    ('dst', '=', f'connect.user,{user.id}')
+                    ('model', '=', 'connect.user'),
+                    ('res_id', '=', user.id)
                 ], limit=1)
                 
                 if extension:
@@ -289,7 +291,7 @@ class PhoneWizard(models.TransientModel):
 
     def _execute_extension_transfer(self, client, session_id, extension_number, transfer_type):
         """
-        Execute transfer using simple transfer TwiML (not extension's complex incoming call TwiML)
+        Execute transfer using the same TwiML format that works for incoming calls
         """
         try:
             logger.info(f'Executing {transfer_type} extension transfer to extension {extension_number}')
@@ -308,22 +310,23 @@ class PhoneWizard(models.TransientModel):
             user = extension.dst
             logger.info(f'Extension {extension_number} points to user: {user.name} (URI: {user.uri})')
             
-            # Create simple transfer TwiML using the user's client identity
+            # Create transfer TwiML using the SAME format as working incoming calls
             response = VoiceResponse()
             
             if transfer_type == 'attended':
                 response.say('Please hold while we connect your call.')
-            # No announcement for blind transfer - just transfer immediately
+            # No announcement for blind transfer
             
-            # Create simple dial with client identity
+            # Create dial with the exact same client format that works for incoming calls
             dial = Dial(timeout=30)
             
-            # Use the user's full URI as the client identity
             from twilio.twiml.voice_response import Client
             client_elem = Client()
-            client_elem.identity(user.uri)  # Use full URI: jasonshepherdtest@3cllc-oduist-connect.sip.twilio.com
-            dial.append(client_elem)
             
+            # Use the SAME format as the working TwiML: <Identity>full_uri</Identity>
+            client_elem.identity(user.uri)  # Full URI: jasonshepherdtest@3cllc-oduist-connect.sip.twilio.com
+            
+            dial.append(client_elem)
             response.append(dial)
             
             # Add fallback for no answer
@@ -331,11 +334,11 @@ class PhoneWizard(models.TransientModel):
             response.hangup()
             
             twiml_str = str(response)
-            logger.info(f'Generated simple transfer TwiML: {twiml_str}')
+            logger.info(f'Generated transfer TwiML with full URI format: {twiml_str}')
             
-            # Update the call with the simple transfer TwiML
+            # Update the call with the transfer TwiML
             result = client.calls(session_id).update(twiml=twiml_str)
-            logger.info(f'Simple transfer TwiML update result: {result}')
+            logger.info(f'Transfer TwiML update result: {result}')
             logger.info(f'{transfer_type.capitalize()} transfer executed to extension {extension_number}')
             return True
             
