@@ -121,7 +121,7 @@ class PhoneWizard(models.TransientModel):
     @api.model
     def debug_current_call_state(self, session_id):
         """
-        Debug the current state of a call before and after transfer
+        Debug the current state of a call before and after transfer - fixed attributes
         """
         try:
             client = self.env['connect.settings'].get_client()
@@ -131,13 +131,15 @@ class PhoneWizard(models.TransientModel):
                 'call_sid': call.sid,
                 'status': call.status,
                 'direction': call.direction,
-                'from_number': call.from_,
-                'to_number': call.to,
+                'from_number': getattr(call, 'from_', getattr(call, 'from_formatted', 'Unknown')),
+                'to_number': getattr(call, 'to', getattr(call, 'to_formatted', 'Unknown')),
                 'start_time': str(call.start_time) if call.start_time else None,
                 'end_time': str(call.end_time) if call.end_time else None,
                 'duration': call.duration,
-                'price': call.price,
-                'answered_by': getattr(call, 'answered_by', 'N/A')
+                'price': getattr(call, 'price', 'Unknown'),
+                'answered_by': getattr(call, 'answered_by', 'N/A'),
+                'parent_call_sid': getattr(call, 'parent_call_sid', 'N/A'),
+                'queue_time': getattr(call, 'queue_time', 'N/A')
             }
             
             logger.info(f'Call state debug for {session_id}: {debug_info}')
