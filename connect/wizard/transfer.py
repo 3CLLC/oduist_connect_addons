@@ -289,7 +289,7 @@ class PhoneWizard(models.TransientModel):
 
     def _execute_extension_transfer(self, client, session_id, extension_number, transfer_type):
         """
-        Execute transfer using extension's render method (like ElevenLabs does)
+        Execute transfer using simple transfer TwiML (not extension's complex incoming call TwiML)
         """
         try:
             logger.info(f'Executing {transfer_type} extension transfer to extension {extension_number}')
@@ -300,34 +300,43 @@ class PhoneWizard(models.TransientModel):
                 logger.error(f'Extension {extension_number} not found')
                 return False
             
-            # Get the current call's channel info
-            channel = self.env['connect.channel'].search([('sid', '=', session_id)], limit=1)
-            if not channel:
-                logger.warning(f'Channel not found for session {session_id}, using generic call info')
-                # Create minimal call info for render
-                call_info = {
-                    'Caller': 'Unknown',
-                    'Called': 'Transfer',
-                    'CallSid': session_id,
-                }
-            else:
-                # Use actual channel information
-                call_info = {
-                    'Caller': channel.caller or 'Unknown',
-                    'Called': channel.called or 'Transfer', 
-                    'CallSid': channel.sid,
-                }
+            # Get the user this extension points to
+            if not extension.dst or extension.dst._name != 'connect.user':
+                logger.error(f'Extension {extension_number} does not point to a connect.user')
+                return False
+                
+            user = extension.dst
+            logger.info(f'Extension {extension_number} points to user: {user.name} (URI: {user.uri})')
             
-            # Use the extension's render method to generate proper TwiML
-            # This is exactly what the ElevenLabs transfer does!
-            twiml = extension.render(call_info)
+            # Create simple transfer TwiML using the user's client identity
+            response = VoiceResponse()
             
-            logger.info(f'Extension render generated TwiML: {twiml}')
+            if transfer_type == 'attended':
+                response.say('Please hold while we connect your call.')
+            # No announcement for blind transfer - just transfer immediately
             
-            # Update the call with the extension's TwiML
-            result = client.calls(session_id).update(twiml=twiml)
-            logger.info(f'Extension transfer TwiML update result: {result}')
-            logger.info(f'{transfer_type.capitalize()} extension transfer executed to {extension_number}')
+            # Create simple dial with client identity
+            dial = Dial(timeout=30)
+            
+            # Use the user's full URI as the client identity
+            from twilio.twiml.voice_response import Client
+            client_elem = Client()
+            client_elem.identity(user.uri)  # Use full URI: jasonshepherdtest@3cllc-oduist-connect.sip.twilio.com
+            dial.append(client_elem)
+            
+            response.append(dial)
+            
+            # Add fallback for no answer
+            response.say('The person you are trying to reach is not available.')
+            response.hangup()
+            
+            twiml_str = str(response)
+            logger.info(f'Generated simple transfer TwiML: {twiml_str}')
+            
+            # Update the call with the simple transfer TwiML
+            result = client.calls(session_id).update(twiml=twiml_str)
+            logger.info(f'Simple transfer TwiML update result: {result}')
+            logger.info(f'{transfer_type.capitalize()} transfer executed to extension {extension_number}')
             return True
             
         except Exception as e:
