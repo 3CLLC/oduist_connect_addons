@@ -118,6 +118,35 @@ class PhoneWizard(models.TransientModel):
             logger.error(f'Debug user identity failed: {e}', exc_info=True)
             return {'error': str(e)}
 
+    @api.model
+    def debug_current_call_state(self, session_id):
+        """
+        Debug the current state of a call before and after transfer
+        """
+        try:
+            client = self.env['connect.settings'].get_client()
+            call = client.calls(session_id).fetch()
+            
+            debug_info = {
+                'call_sid': call.sid,
+                'status': call.status,
+                'direction': call.direction,
+                'from_number': call.from_,
+                'to_number': call.to,
+                'start_time': str(call.start_time) if call.start_time else None,
+                'end_time': str(call.end_time) if call.end_time else None,
+                'duration': call.duration,
+                'price': call.price,
+                'answered_by': getattr(call, 'answered_by', 'N/A')
+            }
+            
+            logger.info(f'Call state debug for {session_id}: {debug_info}')
+            return debug_info
+            
+        except Exception as e:
+            logger.error(f'Could not get call state: {e}')
+            return {'error': str(e)}
+
     def _resolve_phone_number(self, phone_number):
         """
         Convert extension numbers to Twilio Client identities with enhanced debugging
@@ -291,10 +320,16 @@ class PhoneWizard(models.TransientModel):
 
     def _execute_extension_transfer(self, client, session_id, extension_number, transfer_type):
         """
-        Execute transfer using the same TwiML format that works for incoming calls
+        Execute transfer with comprehensive debugging
         """
         try:
-            logger.info(f'Executing {transfer_type} extension transfer to extension {extension_number}')
+            logger.info(f'=== STARTING {transfer_type.upper()} TRANSFER ===')
+            logger.info(f'Session ID: {session_id}')
+            logger.info(f'Target Extension: {extension_number}')
+            
+            # Debug call state BEFORE transfer
+            logger.info('=== CALL STATE BEFORE TRANSFER ===')
+            pre_transfer_state = self.debug_current_call_state(session_id)
             
             # Find the extension
             extension = self.env['connect.exten'].search([('number', '=', extension_number)], limit=1)
@@ -308,42 +343,65 @@ class PhoneWizard(models.TransientModel):
                 return False
                 
             user = extension.dst
-            logger.info(f'Extension {extension_number} points to user: {user.name} (URI: {user.uri})')
+            logger.info(f'Extension {extension_number} points to user: {user.name}')
+            logger.info(f'User URI: {user.uri}')
+            logger.info(f'User username: {user.username}')
+            logger.info(f'User client_enabled: {user.client_enabled}')
             
-            # Create transfer TwiML using the SAME format as working incoming calls
+            # Create transfer TwiML
             response = VoiceResponse()
             
             if transfer_type == 'attended':
                 response.say('Please hold while we connect your call.')
-            # No announcement for blind transfer
+                logger.info('Added hold message for attended transfer')
             
-            # Create dial with the exact same client format that works for incoming calls
             dial = Dial(timeout=30)
+            logger.info('Created Dial with 30 second timeout')
             
             from twilio.twiml.voice_response import Client
             client_elem = Client()
-            
-            # Use the SAME format as the working TwiML: <Identity>full_uri</Identity>
-            client_elem.identity(user.uri)  # Full URI: jasonshepherdtest@3cllc-oduist-connect.sip.twilio.com
-            
+            client_elem.identity(user.uri)
             dial.append(client_elem)
             response.append(dial)
             
-            # Add fallback for no answer
+            # Fallback
             response.say('The person you are trying to reach is not available.')
             response.hangup()
             
             twiml_str = str(response)
-            logger.info(f'Generated transfer TwiML with full URI format: {twiml_str}')
+            logger.info(f'=== GENERATED TWIML ===')
+            logger.info(f'TwiML: {twiml_str}')
+            logger.info(f'TwiML Length: {len(twiml_str)} characters')
             
-            # Update the call with the transfer TwiML
+            # Update the call
+            logger.info('=== UPDATING CALL WITH TWIML ===')
+            logger.info(f'About to update call {session_id}')
+            
             result = client.calls(session_id).update(twiml=twiml_str)
-            logger.info(f'Transfer TwiML update result: {result}')
-            logger.info(f'{transfer_type.capitalize()} transfer executed to extension {extension_number}')
+            
+            logger.info(f'=== CALL UPDATE RESULT ===')
+            logger.info(f'Update result type: {type(result)}')
+            logger.info(f'Update result: {result}')
+            
+            # Debug call state AFTER transfer
+            import time
+            time.sleep(2)  # Wait a moment for state to change
+            logger.info('=== CALL STATE AFTER TRANSFER (2 sec delay) ===')
+            post_transfer_state = self.debug_current_call_state(session_id)
+            
+            # Compare states
+            logger.info('=== STATE COMPARISON ===')
+            if pre_transfer_state.get('status') != post_transfer_state.get('status'):
+                logger.info(f'Call status changed: {pre_transfer_state.get("status")} -> {post_transfer_state.get("status")}')
+            else:
+                logger.info(f'Call status unchanged: {post_transfer_state.get("status")}')
+            
+            logger.info(f'=== TRANSFER COMPLETE ===')
             return True
             
         except Exception as e:
-            logger.error(f'Extension transfer failed: {e}', exc_info=True)
+            logger.error(f'=== TRANSFER FAILED WITH EXCEPTION ===')
+            logger.error(f'Exception: {e}', exc_info=True)
             return False
 
     def _get_caller_id_for_transfer(self, session_id):
