@@ -141,6 +141,8 @@ export class Phone extends Component {
 
             this.bus.addEventListener('busPhoneMakeForward', ({detail}) => this._busPhoneMakeForward(detail))
 
+            this.bus.addEventListener('busPhoneMakeTransfer', ({detail}) => this._busPhoneMakeTransfer(detail))
+
             this.bus.addEventListener('busPhoneToggleDisplay', ({detail}) => this._busPhoneToggleDisplay(detail))
 
             this.bus.addEventListener('busPhoneHangUp', ({detail}) => this._busPhoneHangUp(detail))
@@ -355,6 +357,20 @@ export class Phone extends Component {
         // this.state.isCallForwarded = true
         this.state.isForward = false
         this.state.isContacts = false
+    }
+
+    async _busPhoneMakeTransfer(phoneNumber) {
+        // TODO: Implement proper transfer logic with TwiML
+        // For now, temporarily log the transfer attempt
+        console.log('Transfer requested to:', phoneNumber)
+        
+        // Reset UI state after transfer attempt
+        this.state.isDialingPanel = true
+        this.state.isTransfer = false
+        this.state.isContacts = false
+        
+        // TODO: Replace this with actual backend call to transfer wizard
+        console.warn('Transfer functionality not yet implemented.')
     }
 
     async prepareCall(props) {
