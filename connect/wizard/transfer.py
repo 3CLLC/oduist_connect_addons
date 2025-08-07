@@ -322,7 +322,7 @@ class PhoneWizard(models.TransientModel):
 
     def _execute_extension_transfer(self, client, session_id, extension_number, transfer_type):
         """
-        Execute transfer with comprehensive debugging
+        Execute transfer with comprehensive debugging - FIXED to update parent call
         """
         try:
             logger.info(f'=== STARTING {transfer_type.upper()} TRANSFER ===')
@@ -332,6 +332,21 @@ class PhoneWizard(models.TransientModel):
             # Debug call state BEFORE transfer
             logger.info('=== CALL STATE BEFORE TRANSFER ===')
             pre_transfer_state = self.debug_current_call_state(session_id)
+            
+            # Check if this is a child call with a parent
+            parent_call_sid = pre_transfer_state.get('parent_call_sid')
+            if parent_call_sid and parent_call_sid != 'N/A':
+                logger.info(f'=== DETECTED PARENT CALL: {parent_call_sid} ===')
+                logger.info('Current call is a child call - will update parent call instead')
+                target_call_sid = parent_call_sid
+                
+                # Debug the parent call state
+                logger.info('=== PARENT CALL STATE ===')
+                parent_state = self.debug_current_call_state(parent_call_sid)
+            else:
+                logger.info('=== NO PARENT CALL DETECTED ===')
+                logger.info('Will update current call')
+                target_call_sid = session_id
             
             # Find the extension
             extension = self.env['connect.exten'].search([('number', '=', extension_number)], limit=1)
@@ -375,11 +390,11 @@ class PhoneWizard(models.TransientModel):
             logger.info(f'TwiML: {twiml_str}')
             logger.info(f'TwiML Length: {len(twiml_str)} characters')
             
-            # Update the call
+            # Update the CORRECT call (parent if exists, otherwise current)
             logger.info('=== UPDATING CALL WITH TWIML ===')
-            logger.info(f'About to update call {session_id}')
+            logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
             
-            result = client.calls(session_id).update(twiml=twiml_str)
+            result = client.calls(target_call_sid).update(twiml=twiml_str)
             
             logger.info(f'=== CALL UPDATE RESULT ===')
             logger.info(f'Update result type: {type(result)}')
@@ -389,7 +404,12 @@ class PhoneWizard(models.TransientModel):
             import time
             time.sleep(2)  # Wait a moment for state to change
             logger.info('=== CALL STATE AFTER TRANSFER (2 sec delay) ===')
-            post_transfer_state = self.debug_current_call_state(session_id)
+            post_transfer_state = self.debug_current_call_state(target_call_sid)
+            
+            # Also check the original session call state
+            if parent_call_sid:
+                logger.info('=== ORIGINAL SESSION CALL STATE AFTER TRANSFER ===')
+                session_post_state = self.debug_current_call_state(session_id)
             
             # Compare states
             logger.info('=== STATE COMPARISON ===')
