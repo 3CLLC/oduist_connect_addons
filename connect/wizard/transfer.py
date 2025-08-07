@@ -76,12 +76,16 @@ class PhoneWizard(models.TransientModel):
 
     def _resolve_phone_number(self, phone_number):
         """
-        Convert extension numbers to Twilio Client identities or return phone numbers as-is
+        Convert extension numbers to Twilio Client identities with enhanced debugging
         """
         logger.info(f'Resolving phone number: {phone_number}')
         
         # Check if it's a numeric extension (internal)
         if phone_number.isdigit() and len(phone_number) <= 4:
+            # Get detailed debug info
+            debug_info = self.debug_user_identity(phone_number)
+            logger.info(f'Extension debug info: {debug_info}')
+            
             # Look up the extension in connect.exten
             extension = self.env['connect.exten'].search([('number', '=', phone_number)], limit=1)
             logger.info(f'Found extension: {extension.name if extension else "None"}')
@@ -90,12 +94,29 @@ class PhoneWizard(models.TransientModel):
                 user = extension.dst
                 logger.info(f'Extension points to user: {user.name} (URI: {user.uri})')
                 
-                # Use Twilio Client identity - this will ring their Odoo phone interface
+                # Try multiple identity formats based on your system
+                possible_identities = []
+                
+                if hasattr(user, 'username') and user.username:
+                    possible_identities.append(f'client:{user.username}')
+                    logger.info(f'Added username identity: client:{user.username}')
+                
                 if hasattr(user, 'uri') and user.uri:
                     # Extract client identity from URI (remove @domain part)
                     client_identity = user.uri.split('@')[0] if '@' in user.uri else user.uri
+                    possible_identities.append(f'client:{client_identity}')
+                    logger.info(f'Added URI-based identity: client:{client_identity}')
+                
+                # Try user ID format
+                possible_identities.append(f'client:user{user.id}')
+                logger.info(f'Added user ID identity: client:user{user.id}')
+                
+                # For now, let's use the URI-based one (what we were using before)
+                if user.uri:
+                    client_identity = user.uri.split('@')[0] if '@' in user.uri else user.uri
                     client_target = f'client:{client_identity}'
                     logger.info(f'Extension {phone_number} resolved to Twilio Client: {client_target}')
+                    logger.info(f'Other possible identities to try: {possible_identities}')
                     return client_target
                 else:
                     # Fallback client identity based on extension
@@ -325,3 +346,100 @@ class PhoneWizard(models.TransientModel):
         )
 
         return validation
+    
+    @api.model
+    def debug_user_identity(self, extension_number):
+        """
+        Debug method to understand how client identities work in your system
+        """
+        try:
+            # Look up the extension
+            extension = self.env['connect.exten'].search([('number', '=', extension_number)], limit=1)
+            if not extension or not extension.dst or extension.dst._name != 'connect.user':
+                return {'error': f'Extension {extension_number} not found or not pointing to user'}
+            
+            user = extension.dst
+            debug_info = {
+                'extension_number': extension_number,
+                'extension_name': extension.name,
+                'user_name': user.name,
+                'user_uri': user.uri,
+                'user_username': getattr(user, 'username', 'N/A'),
+                'user_client_enabled': user.client_enabled,
+                'user_id': user.id,
+            }
+            
+            # Check if there's an Odoo user linked
+            if hasattr(user, 'user') and user.user:
+                debug_info['odoo_user_name'] = user.user.name
+                debug_info['odoo_user_login'] = user.user.login
+            
+            # Try different client identity formats
+            uri_parts = user.uri.split('@') if user.uri else []
+            debug_info['possible_identities'] = {
+                'full_uri': user.uri,
+                'username_part': uri_parts[0] if uri_parts else None,
+                'username_field': getattr(user, 'username', None),
+                'user_id_format': f'user{user.id}',
+                'extension_format': f'ext{extension_number}',
+            }
+            
+            logger.info(f'Client identity debug: {debug_info}')
+            return debug_info
+            
+        except Exception as e:
+            logger.error(f'Debug user identity failed: {e}', exc_info=True)
+            return {'error': str(e)}
+
+    @api.model
+    def test_all_identity_formats(self, extension_number, session_id):
+        """
+        Test different client identity formats to see which one works
+        """
+        try:
+            debug_info = self.debug_user_identity(extension_number)
+            if 'error' in debug_info:
+                return debug_info
+            
+            possible_identities = debug_info['possible_identities']
+            client = self.env['connect.settings'].get_client()
+            
+            results = {}
+            
+            for format_name, identity in possible_identities.items():
+                if identity:
+                    try:
+                        logger.info(f'Testing identity format {format_name}: {identity}')
+                        
+                        response = VoiceResponse()
+                        response.say(f'Testing {format_name}')
+                        dial = Dial(timeout=10)
+                        
+                        from twilio.twiml.voice_response import Client
+                        client_elem = Client(identity)
+                        dial.append(client_elem)
+                        response.append(dial)
+                        
+                        twiml_str = str(response)
+                        logger.info(f'Test TwiML for {format_name}: {twiml_str}')
+                        
+                        # We won't actually update the call, just log what we would try
+                        results[format_name] = {
+                            'identity': identity,
+                            'twiml_generated': True,
+                            'twiml': twiml_str
+                        }
+                        
+                    except Exception as e:
+                        logger.error(f'Failed to generate TwiML for {format_name}: {e}')
+                        results[format_name] = {
+                            'identity': identity,
+                            'error': str(e)
+                        }
+            
+            logger.info(f'Identity test results: {results}')
+            return {'debug_info': debug_info, 'test_results': results}
+            
+        except Exception as e:
+            logger.error(f'Test all identity formats failed: {e}', exc_info=True)
+            return {'error': str(e)}
