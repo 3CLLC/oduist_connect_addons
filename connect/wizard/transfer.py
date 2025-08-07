@@ -74,6 +74,50 @@ class PhoneWizard(models.TransientModel):
                 'error': f'Transfer failed: {str(e)}'
             }
 
+    @api.model
+    def debug_user_identity(self, extension_number):
+        """
+        Debug method to understand how client identities work in your system
+        """
+        try:
+            # Look up the extension
+            extension = self.env['connect.exten'].search([('number', '=', extension_number)], limit=1)
+            if not extension or not extension.dst or extension.dst._name != 'connect.user':
+                return {'error': f'Extension {extension_number} not found or not pointing to user'}
+            
+            user = extension.dst
+            debug_info = {
+                'extension_number': extension_number,
+                'extension_name': extension.name,
+                'user_name': user.name,
+                'user_uri': user.uri,
+                'user_username': getattr(user, 'username', 'N/A'),
+                'user_client_enabled': user.client_enabled,
+                'user_id': user.id,
+            }
+            
+            # Check if there's an Odoo user linked
+            if hasattr(user, 'user') and user.user:
+                debug_info['odoo_user_name'] = user.user.name
+                debug_info['odoo_user_login'] = user.user.login
+            
+            # Try different client identity formats
+            uri_parts = user.uri.split('@') if user.uri else []
+            debug_info['possible_identities'] = {
+                'full_uri': user.uri,
+                'username_part': uri_parts[0] if uri_parts else None,
+                'username_field': getattr(user, 'username', None),
+                'user_id_format': f'user{user.id}',
+                'extension_format': f'ext{extension_number}',
+            }
+            
+            logger.info(f'Client identity debug: {debug_info}')
+            return debug_info
+            
+        except Exception as e:
+            logger.error(f'Debug user identity failed: {e}', exc_info=True)
+            return {'error': str(e)}
+
     def _resolve_phone_number(self, phone_number):
         """
         Convert extension numbers to Twilio Client identities with enhanced debugging
@@ -145,48 +189,33 @@ class PhoneWizard(models.TransientModel):
 
     def _execute_blind_transfer(self, client, session_id, target_number):
         """
-        Execute immediate blind transfer using TwiML
+        Execute immediate blind transfer using extension render method (like ElevenLabs)
         """
         try:
             logger.info(f'Executing blind transfer to {target_number} for session {session_id}')
             
-            response = VoiceResponse()
-            dial = Dial(timeout=30)
-            
             if target_number.startswith('client:'):
-                # Twilio Client call - this will ring the user's Odoo phone interface
-                client_identity = target_number.replace('client:', '')
-                logger.info(f'Adding Twilio client target: {client_identity}')
-                
-                # Import here to avoid circular imports
-                from twilio.twiml.voice_response import Client
-                client_elem = Client(client_identity)
-                dial.append(client_elem)
-                
-            elif target_number.startswith('sip:'):
-                # SIP extension (if SIP is configured)
-                logger.info(f'Adding SIP target: {target_number}')
-                dial.sip(target_number)
-                
+                # Extract extension number from client identity
+                # We need to find which extension this client identity maps to
+                extension_number = self._find_extension_by_client_identity(target_number)
+                if extension_number:
+                    return self._execute_extension_transfer(client, session_id, extension_number, 'blind')
+                else:
+                    logger.error(f'Could not find extension for client identity: {target_number}')
+                    return False
             else:
-                # External phone number
-                logger.info(f'Adding phone number target: {target_number}')
+                # External number - use our original TwiML approach
+                response = VoiceResponse()
+                dial = Dial(timeout=30)
                 dial.number(target_number)
-            
-            response.append(dial)
-            
-            # Add fallback for failed transfers
-            # response.say('The transfer could not be completed. Please try again.')
-            # response.hangup()
-            
-            twiml_str = str(response)
-            logger.info(f'Generated TwiML: {twiml_str}')
-            
-            # Update the active call with new TwiML
-            result = client.calls(session_id).update(twiml=twiml_str)
-            logger.info(f'TwiML update result: {result}')
-            logger.info(f'Blind transfer executed to {target_number} for call {session_id}')
-            return True
+                response.append(dial)
+                
+                twiml_str = str(response)
+                logger.info(f'Generated external transfer TwiML: {twiml_str}')
+                
+                result = client.calls(session_id).update(twiml=twiml_str)
+                logger.info(f'External transfer executed: {result}')
+                return True
             
         except Exception as e:
             logger.error(f'Blind transfer failed: {e}', exc_info=True)
@@ -194,54 +223,115 @@ class PhoneWizard(models.TransientModel):
 
     def _execute_attended_transfer(self, client, session_id, target_number):
         """
-        Execute attended transfer - simplified approach using blind transfer for now
+        Execute attended transfer using extension render method
         """
         try:
             logger.info(f'Executing attended transfer to {target_number} for session {session_id}')
             
-            response = VoiceResponse()
-            response.say('Transferring your call now.')
-            response.pause(length=1)
-            
-            dial = Dial(timeout=30)
-            
             if target_number.startswith('client:'):
-                # Twilio Client call - this will ring the user's Odoo phone interface
-                client_identity = target_number.replace('client:', '')
-                logger.info(f'Adding Twilio client target for attended transfer: {client_identity}')
-                
-                # Import here to avoid circular imports  
-                from twilio.twiml.voice_response import Client
-                client_elem = Client(client_identity)
-                dial.append(client_elem)
-                
-            elif target_number.startswith('sip:'):
-                # SIP extension (if SIP is configured)
-                logger.info(f'Adding SIP target for attended transfer: {target_number}')
-                dial.sip(target_number)
-                
+                # Extract extension number from client identity
+                extension_number = self._find_extension_by_client_identity(target_number)
+                if extension_number:
+                    return self._execute_extension_transfer(client, session_id, extension_number, 'attended')
+                else:
+                    logger.error(f'Could not find extension for attended transfer: {target_number}')
+                    return False
             else:
-                # External phone number
-                logger.info(f'Adding phone number target for attended transfer: {target_number}')
+                # External number - use TwiML approach with announcement
+                response = VoiceResponse()
+                response.say('Connecting your call now.')
+                dial = Dial(timeout=30)
                 dial.number(target_number)
+                response.append(dial)
+                
+                twiml_str = str(response)
+                logger.info(f'Generated external attended transfer TwiML: {twiml_str}')
+                
+                result = client.calls(session_id).update(twiml=twiml_str)
+                logger.info(f'External attended transfer executed: {result}')
+                return True
+                
+        except Exception as e:
+            logger.error(f'Attended transfer failed: {e}', exc_info=True)
+            return False
+
+    def _find_extension_by_client_identity(self, client_identity):
+        """
+        Find extension number from client identity (reverse lookup)
+        """
+        try:
+            # Remove 'client:' prefix
+            identity = client_identity.replace('client:', '')
             
-            response.append(dial)
+            # Look for user with matching username or URI part
+            user = self.env['connect.user'].search([
+                '|',
+                ('username', '=', identity),
+                ('uri', 'like', f'{identity}@')
+            ], limit=1)
             
-            # Add fallback for failed transfers
-            # response.say('The transfer could not be completed. Please try again.')
-            # response.hangup()
+            if user:
+                # Find extension pointing to this user
+                extension = self.env['connect.exten'].search([
+                    ('dst', '=', f'connect.user,{user.id}')
+                ], limit=1)
+                
+                if extension:
+                    logger.info(f'Found extension {extension.number} for client identity {client_identity}')
+                    return extension.number
             
-            twiml_str = str(response)
-            logger.info(f'Generated attended transfer TwiML: {twiml_str}')
+            logger.warning(f'Could not find extension for client identity: {client_identity}')
+            return None
             
-            # Update the active call with new TwiML
-            result = client.calls(session_id).update(twiml=twiml_str)
-            logger.info(f'Attended transfer TwiML update result: {result}')
-            logger.info(f'Attended transfer executed to {target_number} for call {session_id}')
+        except Exception as e:
+            logger.error(f'Error finding extension by client identity: {e}')
+            return None
+
+    def _execute_extension_transfer(self, client, session_id, extension_number, transfer_type):
+        """
+        Execute transfer using extension's render method (like ElevenLabs does)
+        """
+        try:
+            logger.info(f'Executing {transfer_type} extension transfer to extension {extension_number}')
+            
+            # Find the extension
+            extension = self.env['connect.exten'].search([('number', '=', extension_number)], limit=1)
+            if not extension:
+                logger.error(f'Extension {extension_number} not found')
+                return False
+            
+            # Get the current call's channel info
+            channel = self.env['connect.channel'].search([('sid', '=', session_id)], limit=1)
+            if not channel:
+                logger.warning(f'Channel not found for session {session_id}, using generic call info')
+                # Create minimal call info for render
+                call_info = {
+                    'Caller': 'Unknown',
+                    'Called': 'Transfer',
+                    'CallSid': session_id,
+                }
+            else:
+                # Use actual channel information
+                call_info = {
+                    'Caller': channel.caller or 'Unknown',
+                    'Called': channel.called or 'Transfer', 
+                    'CallSid': channel.sid,
+                }
+            
+            # Use the extension's render method to generate proper TwiML
+            # This is exactly what the ElevenLabs transfer does!
+            twiml = extension.render(call_info)
+            
+            logger.info(f'Extension render generated TwiML: {twiml}')
+            
+            # Update the call with the extension's TwiML
+            result = client.calls(session_id).update(twiml=twiml)
+            logger.info(f'Extension transfer TwiML update result: {result}')
+            logger.info(f'{transfer_type.capitalize()} extension transfer executed to {extension_number}')
             return True
             
         except Exception as e:
-            logger.error(f'Attended transfer failed: {e}', exc_info=True)
+            logger.error(f'Extension transfer failed: {e}', exc_info=True)
             return False
 
     def _get_caller_id_for_transfer(self, session_id):
@@ -252,28 +342,31 @@ class PhoneWizard(models.TransientModel):
             # Try to get caller ID from current call
             client = self.env['connect.settings'].get_client()
             call_info = client.calls(session_id).fetch()
-            original_from = call_info.from_
-            if original_from:
-                return original_from
+            original_to = call_info.to  # Use the 'to' number (your Twilio number)
+            logger.info(f'Using original call TO number as caller ID: {original_to}')
+            if original_to:
+                return original_to
         except Exception as e:
-            logger.warning(f'Could not get original caller ID: {e}')
+            logger.warning(f'Could not get original call info: {e}')
 
         try:
             # Fallback 1: Default caller ID from settings
             default_caller_id = self.env['connect.settings'].sudo().get_param('default_caller_id')
             if default_caller_id:
+                logger.info(f'Using default caller ID: {default_caller_id}')
                 return default_caller_id
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f'Could not get default caller ID: {e}')
 
         try:
             # Fallback 2: First available Twilio number
             client = self.env['connect.settings'].get_client()
             numbers = client.incoming_phone_numbers.list(limit=1)
             if numbers:
+                logger.info(f'Using first Twilio number: {numbers[0].phone_number}')
                 return numbers[0].phone_number
-        except:
-            pass
+        except Exception as e:
+            logger.warning(f'Could not get Twilio numbers: {e}')
 
         # Final fallback - this should rarely be reached
         logger.error('No caller ID could be determined for transfer')
@@ -346,100 +439,3 @@ class PhoneWizard(models.TransientModel):
         )
 
         return validation
-    
-    @api.model
-    def debug_user_identity(self, extension_number):
-        """
-        Debug method to understand how client identities work in your system
-        """
-        try:
-            # Look up the extension
-            extension = self.env['connect.exten'].search([('number', '=', extension_number)], limit=1)
-            if not extension or not extension.dst or extension.dst._name != 'connect.user':
-                return {'error': f'Extension {extension_number} not found or not pointing to user'}
-            
-            user = extension.dst
-            debug_info = {
-                'extension_number': extension_number,
-                'extension_name': extension.name,
-                'user_name': user.name,
-                'user_uri': user.uri,
-                'user_username': getattr(user, 'username', 'N/A'),
-                'user_client_enabled': user.client_enabled,
-                'user_id': user.id,
-            }
-            
-            # Check if there's an Odoo user linked
-            if hasattr(user, 'user') and user.user:
-                debug_info['odoo_user_name'] = user.user.name
-                debug_info['odoo_user_login'] = user.user.login
-            
-            # Try different client identity formats
-            uri_parts = user.uri.split('@') if user.uri else []
-            debug_info['possible_identities'] = {
-                'full_uri': user.uri,
-                'username_part': uri_parts[0] if uri_parts else None,
-                'username_field': getattr(user, 'username', None),
-                'user_id_format': f'user{user.id}',
-                'extension_format': f'ext{extension_number}',
-            }
-            
-            logger.info(f'Client identity debug: {debug_info}')
-            return debug_info
-            
-        except Exception as e:
-            logger.error(f'Debug user identity failed: {e}', exc_info=True)
-            return {'error': str(e)}
-
-    @api.model
-    def test_all_identity_formats(self, extension_number, session_id):
-        """
-        Test different client identity formats to see which one works
-        """
-        try:
-            debug_info = self.debug_user_identity(extension_number)
-            if 'error' in debug_info:
-                return debug_info
-            
-            possible_identities = debug_info['possible_identities']
-            client = self.env['connect.settings'].get_client()
-            
-            results = {}
-            
-            for format_name, identity in possible_identities.items():
-                if identity:
-                    try:
-                        logger.info(f'Testing identity format {format_name}: {identity}')
-                        
-                        response = VoiceResponse()
-                        response.say(f'Testing {format_name}')
-                        dial = Dial(timeout=10)
-                        
-                        from twilio.twiml.voice_response import Client
-                        client_elem = Client(identity)
-                        dial.append(client_elem)
-                        response.append(dial)
-                        
-                        twiml_str = str(response)
-                        logger.info(f'Test TwiML for {format_name}: {twiml_str}')
-                        
-                        # We won't actually update the call, just log what we would try
-                        results[format_name] = {
-                            'identity': identity,
-                            'twiml_generated': True,
-                            'twiml': twiml_str
-                        }
-                        
-                    except Exception as e:
-                        logger.error(f'Failed to generate TwiML for {format_name}: {e}')
-                        results[format_name] = {
-                            'identity': identity,
-                            'error': str(e)
-                        }
-            
-            logger.info(f'Identity test results: {results}')
-            return {'debug_info': debug_info, 'test_results': results}
-            
-        except Exception as e:
-            logger.error(f'Test all identity formats failed: {e}', exc_info=True)
-            return {'error': str(e)}
