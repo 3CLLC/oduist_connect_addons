@@ -76,24 +76,39 @@ class PhoneWizard(models.TransientModel):
 
     def _resolve_phone_number(self, phone_number):
         """
-        Convert extension numbers to SIP URIs or return phone numbers as-is
+        Convert extension numbers to Twilio Client identities or return phone numbers as-is
         """
+        logger.info(f'Resolving phone number: {phone_number}')
+        
         # Check if it's a numeric extension (internal)
         if phone_number.isdigit() and len(phone_number) <= 4:
             # Look up the extension in connect.exten
             extension = self.env['connect.exten'].search([('number', '=', phone_number)], limit=1)
-            if extension and extension.dst._name == 'connect.user':
-                # Get the SIP domain for this user
-                try:
-                    domain = self.env['connect.settings'].sudo().get_param('sip_domain')
-                    if domain:
-                        return f'sip:{phone_number}@{domain}'
-                    else:
-                        logger.warning(f'No SIP domain configured, treating extension {phone_number} as phone number')
-                except Exception as e:
-                    logger.warning(f'Could not get SIP domain: {e}')
-            # If no SIP domain or extension not found, treat as phone number
-            return phone_number
+            logger.info(f'Found extension: {extension.name if extension else "None"}')
+            
+            if extension and extension.dst and extension.dst._name == 'connect.user':
+                user = extension.dst
+                logger.info(f'Extension points to user: {user.name} (URI: {user.uri})')
+                
+                # Use Twilio Client identity - this will ring their Odoo phone interface
+                if hasattr(user, 'uri') and user.uri:
+                    # Extract client identity from URI (remove @domain part)
+                    client_identity = user.uri.split('@')[0] if '@' in user.uri else user.uri
+                    client_target = f'client:{client_identity}'
+                    logger.info(f'Extension {phone_number} resolved to Twilio Client: {client_target}')
+                    return client_target
+                else:
+                    # Fallback client identity based on extension
+                    client_target = f'client:user{phone_number}'
+                    logger.info(f'No URI found, using fallback client identity: {client_target}')
+                    return client_target
+            
+            else:
+                logger.warning(f'Extension {phone_number} not found or not pointing to user')
+                # Still try as client identity - maybe it's a valid extension
+                client_target = f'client:user{phone_number}'
+                logger.info(f'Using fallback client identity: {client_target}')
+                return client_target
         else:
             # External phone number - ensure it has proper formatting
             if not phone_number.startswith('+'):
@@ -103,6 +118,8 @@ class PhoneWizard(models.TransientModel):
                     phone_number = f'+{default_country}{phone_number}'
                 except:
                     phone_number = f'+1{phone_number}'  # Fallback to US
+            
+            logger.info(f'External number resolved to: {phone_number}')
             return phone_number
 
     def _execute_blind_transfer(self, client, session_id, target_number):
@@ -110,68 +127,100 @@ class PhoneWizard(models.TransientModel):
         Execute immediate blind transfer using TwiML
         """
         try:
-            response = VoiceResponse()
-            dial = Dial()
+            logger.info(f'Executing blind transfer to {target_number} for session {session_id}')
             
-            if target_number.startswith('sip:'):
-                # Internal SIP extension
+            response = VoiceResponse()
+            dial = Dial(timeout=30)
+            
+            if target_number.startswith('client:'):
+                # Twilio Client call - this will ring the user's Odoo phone interface
+                client_identity = target_number.replace('client:', '')
+                logger.info(f'Adding Twilio client target: {client_identity}')
+                
+                # Import here to avoid circular imports
+                from twilio.twiml.voice_response import Client
+                client_elem = Client(client_identity)
+                dial.append(client_elem)
+                
+            elif target_number.startswith('sip:'):
+                # SIP extension (if SIP is configured)
+                logger.info(f'Adding SIP target: {target_number}')
                 dial.sip(target_number)
+                
             else:
                 # External phone number
+                logger.info(f'Adding phone number target: {target_number}')
                 dial.number(target_number)
             
             response.append(dial)
             
+            # Add fallback for failed transfers
+            response.say('The transfer could not be completed. Please try again.')
+            response.hangup()
+            
+            twiml_str = str(response)
+            logger.info(f'Generated TwiML: {twiml_str}')
+            
             # Update the active call with new TwiML
-            client.calls(session_id).update(twiml=str(response))
+            result = client.calls(session_id).update(twiml=twiml_str)
+            logger.info(f'TwiML update result: {result}')
             logger.info(f'Blind transfer executed to {target_number} for call {session_id}')
             return True
             
         except Exception as e:
-            logger.error(f'Blind transfer failed: {e}')
+            logger.error(f'Blind transfer failed: {e}', exc_info=True)
             return False
 
     def _execute_attended_transfer(self, client, session_id, target_number):
         """
-        Execute attended transfer using conference rooms
+        Execute attended transfer - simplified approach using blind transfer for now
         """
         try:
-            # Generate unique conference name
-            import uuid
-            conference_name = f'transfer-{uuid.uuid4().hex[:8]}'
+            logger.info(f'Executing attended transfer to {target_number} for session {session_id}')
             
-            # Create TwiML to put current call in conference
             response = VoiceResponse()
-            response.say('Please hold while we connect you.')
-            dial = Dial()
-            dial.conference(conference_name, start_conference_on_enter=True)
+            response.say('Transferring your call now.')
+            response.pause(length=1)
+            
+            dial = Dial(timeout=30)
+            
+            if target_number.startswith('client:'):
+                # Twilio Client call - this will ring the user's Odoo phone interface
+                client_identity = target_number.replace('client:', '')
+                logger.info(f'Adding Twilio client target for attended transfer: {client_identity}')
+                
+                # Import here to avoid circular imports  
+                from twilio.twiml.voice_response import Client
+                client_elem = Client(client_identity)
+                dial.append(client_elem)
+                
+            elif target_number.startswith('sip:'):
+                # SIP extension (if SIP is configured)
+                logger.info(f'Adding SIP target for attended transfer: {target_number}')
+                dial.sip(target_number)
+                
+            else:
+                # External phone number
+                logger.info(f'Adding phone number target for attended transfer: {target_number}')
+                dial.number(target_number)
+            
             response.append(dial)
             
-            # Update current call to join conference
-            client.calls(session_id).update(twiml=str(response))
+            # Add fallback for failed transfers
+            response.say('The transfer could not be completed. Please try again.')
+            response.hangup()
             
-            # Create new call to target and put them in same conference
-            new_call_response = VoiceResponse()
-            new_call_response.say('You have an incoming transfer.')
-            new_dial = Dial()
-            new_dial.conference(conference_name, start_conference_on_enter=True)
-            new_call_response.append(new_dial)
+            twiml_str = str(response)
+            logger.info(f'Generated attended transfer TwiML: {twiml_str}')
             
-            # Get caller ID for outgoing call with fallbacks
-            caller_id = self._get_caller_id_for_transfer(session_id)
-            
-            # Initiate call to target
-            client.calls.create(
-                to=target_number,
-                from_=caller_id,
-                twiml=str(new_call_response)
-            )
-            
-            logger.info(f'Attended transfer initiated to {target_number} via conference {conference_name}')
+            # Update the active call with new TwiML
+            result = client.calls(session_id).update(twiml=twiml_str)
+            logger.info(f'Attended transfer TwiML update result: {result}')
+            logger.info(f'Attended transfer executed to {target_number} for call {session_id}')
             return True
             
         except Exception as e:
-            logger.error(f'Attended transfer failed: {e}')
+            logger.error(f'Attended transfer failed: {e}', exc_info=True)
             return False
 
     def _get_caller_id_for_transfer(self, session_id):
