@@ -322,7 +322,7 @@ class PhoneWizard(models.TransientModel):
 
     def _execute_extension_transfer(self, client, session_id, extension_number, transfer_type):
         """
-        Execute transfer with comprehensive debugging - FIXED to update parent call
+        Execute transfer with different behavior for blind vs attended transfers
         """
         try:
             logger.info(f'=== STARTING {transfer_type.upper()} TRANSFER ===')
@@ -362,30 +362,17 @@ class PhoneWizard(models.TransientModel):
             user = extension.dst
             logger.info(f'Extension {extension_number} points to user: {user.name}')
             logger.info(f'User URI: {user.uri}')
-            logger.info(f'User username: {user.username}')
-            logger.info(f'User client_enabled: {user.client_enabled}')
             
-            # Create transfer TwiML
-            response = VoiceResponse()
+            # Create different TwiML based on transfer type
+            if transfer_type == 'blind':
+                # BLIND TRANSFER: Immediate transfer with smart error handling
+                twiml_str = self._create_blind_transfer_twiml(user)
+                logger.info('Created BLIND transfer TwiML (immediate transfer)')
+            else:
+                # ATTENDED TRANSFER: Conference-based with consultation
+                twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
+                logger.info('Created ATTENDED transfer TwiML (conference-based)')
             
-            if transfer_type == 'attended':
-                response.say('Please hold while we connect your call.')
-                logger.info('Added hold message for attended transfer')
-            
-            dial = Dial(timeout=30)
-            logger.info('Created Dial with 30 second timeout')
-            
-            from twilio.twiml.voice_response import Client
-            client_elem = Client()
-            client_elem.identity(user.uri)
-            dial.append(client_elem)
-            response.append(dial)
-            
-            # Fallback
-            response.say('The person you are trying to reach is not available.')
-            response.hangup()
-            
-            twiml_str = str(response)
             logger.info(f'=== GENERATED TWIML ===')
             logger.info(f'TwiML: {twiml_str}')
             logger.info(f'TwiML Length: {len(twiml_str)} characters')
@@ -397,27 +384,14 @@ class PhoneWizard(models.TransientModel):
             result = client.calls(target_call_sid).update(twiml=twiml_str)
             
             logger.info(f'=== CALL UPDATE RESULT ===')
-            logger.info(f'Update result type: {type(result)}')
             logger.info(f'Update result: {result}')
             
-            # Debug call state AFTER transfer
-            import time
-            time.sleep(2)  # Wait a moment for state to change
-            logger.info('=== CALL STATE AFTER TRANSFER (2 sec delay) ===')
-            post_transfer_state = self.debug_current_call_state(target_call_sid)
-            
-            # Also check the original session call state
-            if parent_call_sid:
-                logger.info('=== ORIGINAL SESSION CALL STATE AFTER TRANSFER ===')
-                session_post_state = self.debug_current_call_state(session_id)
-            
-            # Compare states
-            logger.info('=== STATE COMPARISON ===')
-            if pre_transfer_state.get('status') != post_transfer_state.get('status'):
-                logger.info(f'Call status changed: {pre_transfer_state.get("status")} -> {post_transfer_state.get("status")}')
-            else:
-                logger.info(f'Call status unchanged: {post_transfer_state.get("status")}')
-            
+            # For attended transfer, we need to handle the consultation phase
+            if transfer_type == 'attended':
+                # The original recipient (you) should stay connected until you hang up
+                # The child call should continue until you decide to complete the transfer
+                logger.info('=== ATTENDED TRANSFER: Keeping original recipient connected ===')
+                
             logger.info(f'=== TRANSFER COMPLETE ===')
             return True
             
@@ -425,6 +399,90 @@ class PhoneWizard(models.TransientModel):
             logger.error(f'=== TRANSFER FAILED WITH EXCEPTION ===')
             logger.error(f'Exception: {e}', exc_info=True)
             return False
+
+    def _create_blind_transfer_twiml(self, user):
+        """
+        Create TwiML for blind (immediate) transfer with smart error handling
+        """
+        response = VoiceResponse()
+        response.say('Transferring your call now.')
+        
+        # Add action URL to detect dial result
+        api_url = self.env['connect.settings'].get_param('api_url')
+        action_url = f'{api_url}/twilio/webhook/transfer_result' if api_url else None
+        
+        dial = Dial(timeout=30, action=action_url, method='POST')
+        
+        from twilio.twiml.voice_response import Client
+        client_elem = Client()
+        client_elem.identity(user.uri)
+        dial.append(client_elem)
+        response.append(dial)
+        
+        # Smart error handling - only show error if dial actually failed
+        response.say('The person you are trying to reach is not available. Please try again.')
+        response.hangup()
+        
+        return str(response)
+
+    def _create_attended_transfer_twiml(self, user, call_sid):
+        """
+        Create TwiML for attended (consultation) transfer using conference
+        """
+        import uuid
+        conference_name = f'transfer-{call_sid[-8:]}'  # Use last 8 chars of call ID
+        
+        response = VoiceResponse()
+        response.say('Please hold while we connect you.')
+        
+        dial = Dial()
+        dial.conference(
+            conference_name,
+            startConferenceOnEnter=True,
+            endConferenceOnExit=True
+        )
+        response.append(dial)
+        
+        # Create a separate call to bring the target user into the conference
+        self._initiate_conference_call(user, conference_name)
+        
+        return str(response)
+
+    def _initiate_conference_call(self, user, conference_name):
+        """
+        Create a separate call to bring the transfer target into the conference
+        """
+        try:
+            client = self.env['connect.settings'].get_client()
+            
+            # Get caller ID for the conference call
+            caller_id = self._get_caller_id_for_transfer('')
+            
+            # Create TwiML for the target user to join conference
+            target_response = VoiceResponse()
+            target_response.say('You have an incoming transfer.')
+            
+            target_dial = Dial()
+            target_dial.conference(
+                conference_name,
+                startConferenceOnEnter=True,
+                endConferenceOnExit=False  # Don't end conference when target leaves
+            )
+            target_response.append(target_dial)
+            
+            # Create the call to the target
+            call = client.calls.create(
+                to=f'client:{user.uri}',
+                from_=caller_id,
+                twiml=str(target_response)
+            )
+            
+            logger.info(f'Created conference call to target: {call.sid}')
+            return call.sid
+            
+        except Exception as e:
+            logger.error(f'Failed to create conference call: {e}')
+            return None
 
     def _get_caller_id_for_transfer(self, session_id):
         """
