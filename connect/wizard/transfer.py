@@ -155,8 +155,8 @@ class PhoneWizard(models.TransientModel):
             response.append(dial)
             
             # Add fallback for failed transfers
-            response.say('The transfer could not be completed. Please try again.')
-            response.hangup()
+            # response.say('The transfer could not be completed. Please try again.')
+            # response.hangup()
             
             twiml_str = str(response)
             logger.info(f'Generated TwiML: {twiml_str}')
@@ -207,8 +207,8 @@ class PhoneWizard(models.TransientModel):
             response.append(dial)
             
             # Add fallback for failed transfers
-            response.say('The transfer could not be completed. Please try again.')
-            response.hangup()
+            # response.say('The transfer could not be completed. Please try again.')
+            # response.hangup()
             
             twiml_str = str(response)
             logger.info(f'Generated attended transfer TwiML: {twiml_str}')
