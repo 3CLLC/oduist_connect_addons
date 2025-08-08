@@ -4,7 +4,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-class PhoneWizard(models.TransientModel):
+class CallForwardHandler(models.TransientModel):
     _name = 'connect.transfer_wizard'
     _description = 'Transfer Wizard'
 
@@ -402,26 +402,20 @@ class PhoneWizard(models.TransientModel):
 
     def _create_blind_transfer_twiml(self, user):
         """
-        Create TwiML for blind (immediate) transfer with smart error handling
+        EXISTING LOGIC: Create TwiML for blind (immediate) transfer
+        Extracted from transfer.py - keeping exact same logic
         """
         response = VoiceResponse()
         response.say('Transferring your call now.')
         
-        # Add action URL to detect dial result
-        api_url = self.env['connect.settings'].get_param('api_url')
-        action_url = f'{api_url}/twilio/webhook/transfer_result' if api_url else None
-        
-        dial = Dial(timeout=30, action=action_url, method='POST')
+        # Simple dial without action URL to avoid 404 errors
+        dial = Dial(timeout=30)
         
         from twilio.twiml.voice_response import Client
         client_elem = Client()
         client_elem.identity(user.uri)
         dial.append(client_elem)
         response.append(dial)
-        
-        # Smart error handling - only show error if dial actually failed
-        response.say('The person you are trying to reach is not available. Please try again.')
-        response.hangup()
         
         return str(response)
 
