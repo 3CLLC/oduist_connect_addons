@@ -46,6 +46,12 @@ class CallFlow(models.Model):
     choices = fields.One2many('connect.callflow_choice', 'callflow')
     gather_action_url = fields.Char(compute='_get_gather_action_url')
     ring_users = fields.Many2many('connect.user')
+    ring_timeout = fields.Integer(
+        string='Ring Timeout', 
+        default=30, 
+        required=True,
+        help='How long to ring users (in seconds) before going to voicemail'
+    )
     record_calls = fields.Boolean()
     voicemail_prompt = fields.Text()
     voicemail_enabled = fields.Boolean()
@@ -110,28 +116,31 @@ class CallFlow(models.Model):
                     response.say('Your must configure a default number for caller ID!')
                     return response
             if self.record_calls:
-                dial = Dial(callerId=callerId, action=action_url,
+                dial = Dial(callerId=callerId, action=action_url, timeout=self.ring_timeout,
                         record='record-from-answer-dual', recordingStatusCallback=record_status_url)
             else:
-                dial = Dial(callerId=callerId, action=action_url)
+                dial = Dial(callerId=callerId, action=action_url, timeout=self.ring_timeout)
             for user in self.ring_users:
-                if user.ring_first == 'sip':
+                # Only add enabled device types
+                if user.ring_first == 'sip' and user.sip_enabled:
                     dial.sip('sip:{}'.format(user.uri),
                             statusCallbackEvent='answered completed',
                             statusCallback=status_url)
-                elif user.ring_first == 'client':
+                elif user.ring_first == 'client' and user.client_enabled:
                     client = Client(
                         statusCallbackEvent='answered completed',
                         statusCallback=status_url)
                     client.identity(user.uri)
                     client.parameter(name='CallerName', value=callerId)
                     dial.append(client)
-                # Ring 2nd
-                if user.ring_second == 'sip':
+                # Ring 2nd - only if different from first and enabled
+                if (user.ring_second == 'sip' and user.sip_enabled and 
+                    user.ring_second != user.ring_first):
                     dial.sip('sip:{}'.format(user.uri),
                             statusCallbackEvent='answered completed',
                             statusCallback=status_url)
-                elif user.ring_second == 'client':
+                elif (user.ring_second == 'client' and user.client_enabled and 
+                    user.ring_second != user.ring_first):
                     client = Client(
                         statusCallbackEvent='answered completed',
                         statusCallback=status_url)
