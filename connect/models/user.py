@@ -48,6 +48,8 @@ class User(models.Model):
     outgoing_callerid = fields.Many2one('connect.outgoing_callerid', ondelete='set null',
         domain=['|',('status', '=', 'validated'),('callerid_type', '=', 'number')])
     missed_calls_notify = fields.Boolean(default=False, help='Notify user on missed calls.')
+    call_popup_is_enabled = fields.Boolean(default=True, string='Enable Call Notifications', help='Enable notifications for call events (transfers, status updates, etc.)')
+    call_popup_is_sticky = fields.Boolean(default=False, string='Sticky Call Notifications', help='Require manual dismissal of call notifications?')
     greeting_message = fields.Char()
 
     _sql_constraints = [

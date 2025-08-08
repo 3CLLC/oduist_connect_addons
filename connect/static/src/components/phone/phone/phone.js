@@ -114,6 +114,34 @@ export class Phone extends Component {
         this.suppressBroadcastChannel = false
     }
 
+    async loadUserPreferences() {
+            try {
+                // Get current user's Connect user record to load notification preferences
+                const connectUser = await this.orm.call('connect.user', 'search_read', [
+                    [['user', '=', uid]]
+                ], {
+                    fields: ['call_popup_is_enabled', 'call_popup_is_sticky'],
+                    limit: 1
+                })
+                
+                if (connectUser && connectUser.length > 0) {
+                    // Set notification preferences from user settings
+                    this.call_popup_is_enabled = connectUser[0].call_popup_is_enabled
+                    this.call_popup_is_sticky = connectUser[0].call_popup_is_sticky
+                } else {
+                    // Default values if no Connect user record found
+                    this.call_popup_is_enabled = true
+                    this.call_popup_is_sticky = false
+                    console.warn('No Connect user record found, using default notification settings')
+                }
+            } catch (error) {
+                // Fallback to defaults if loading fails
+                this.call_popup_is_enabled = true
+                this.call_popup_is_sticky = false
+                console.error('Failed to load user notification preferences:', error)
+            }
+        }
+
     setup() {
         super.setup()
         this.orm = useService('orm')
@@ -135,6 +163,9 @@ export class Phone extends Component {
 
         onWillStart(async () => {
             await loadJS('/connect/static/src/lib/twilio.min.js')
+
+            // Load user notification preferences
+            await this.loadUserPreferences()
 
             // EVENTS
             this.bus.addEventListener('busPhoneMakeCall', ({detail}) => this.prepareCall(detail))
