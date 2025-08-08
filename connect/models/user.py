@@ -233,64 +233,77 @@ class User(models.Model):
         api_url = self.env['connect.settings'].sudo().get_param('api_url')
         record_status_url = urljoin(api_url, 'twilio/webhook/recordingstatus')
         status_url = urljoin(api_url, 'twilio/webhook/callstatus')
-        #action_url = urljoin(
-        #    api_url, 'twilio/webhook/connect.user/call_action/{}'.format(self.id)
-        #)
         response = VoiceResponse()
+        
         # Greet the caller
         if self.greeting_message:
             self.get_greeting_message(response)
-        dial_sip_kwargs = {'timeout': self.sip_ring_timeout, 'callerId': callerId}
-        if self.record_calls:
-            dial_sip_kwargs.update({
-                'recordingStatusCallback': record_status_url,
-                'record': 'record-from-answer-dual'
-            })
-        dial_sip = Dial(**dial_sip_kwargs)
-        dial_sip.sip(
-            'sip:{}'.format(self.uri),
-            statusCallbackEvent='initiated answered completed',
-            statusCallback=status_url)
+        
+        # Create dial elements only for enabled device types
+        dial_sip = None
+        dial_client = None
+        
+        # Only create SIP dial if SIP is enabled
+        if self.sip_enabled:
+            dial_sip_kwargs = {'timeout': self.sip_ring_timeout, 'callerId': callerId}
+            if self.record_calls:
+                dial_sip_kwargs.update({
+                    'recordingStatusCallback': record_status_url,
+                    'record': 'record-from-answer-dual'
+                })
+            dial_sip = Dial(**dial_sip_kwargs)
+            dial_sip.sip(
+                'sip:{}'.format(self.uri),
+                statusCallbackEvent='initiated answered completed',
+                statusCallback=status_url)
 
-        dial_client_kwargs = {'timeout': self.client_ring_timeout, 'callerId': callerId}
-        if self.record_calls:
-            dial_client_kwargs.update({
-                'record': 'record-from-answer',
-                'recordingStatusCallback': record_status_url
-            })
-        dial_client = Dial(**dial_client_kwargs)
-        client = Client(
-            statusCallbackEvent='initiated answered completed',
-            statusCallback=status_url)
-        client.identity(self.uri)
-        if caller_name:
-            client.parameter(name='CallerName', value=caller_name)
-        if call and call.partner:
-            partner_id = call.partner.id
-        elif channel and channel.caller_user:
-            partner_id = channel.caller_user.partner_id.id
-        else:
-            partner_id = False
-        client.parameter(name='Partner', value=partner_id)
-        dial_client.append(client)
-        if self.ring_first == 'sip':
+        # Only create client dial if client is enabled
+        if self.client_enabled:
+            dial_client_kwargs = {'timeout': self.client_ring_timeout, 'callerId': callerId}
+            if self.record_calls:
+                dial_client_kwargs.update({
+                    'record': 'record-from-answer',
+                    'recordingStatusCallback': record_status_url
+                })
+            dial_client = Dial(**dial_client_kwargs)
+            client = Client(
+                statusCallbackEvent='initiated answered completed',
+                statusCallback=status_url)
+            client.identity(self.uri)
+            if caller_name:
+                client.parameter(name='CallerName', value=caller_name)
+            if call and call.partner:
+                partner_id = call.partner.id
+            elif channel and channel.caller_user:
+                partner_id = channel.caller_user.partner_id.id
+            else:
+                partner_id = False
+            client.parameter(name='Partner', value=partner_id)
+            dial_client.append(client)
+
+        # Add ring attempts in order, but only if the device type is enabled
+        if self.ring_first == 'sip' and self.sip_enabled and dial_sip:
             response.append(dial_sip)
-        elif self.ring_first == 'client':
+        elif self.ring_first == 'client' and self.client_enabled and dial_client:
             response.append(dial_client)
-        if self.ring_second == 'sip':
+        
+        if self.ring_second == 'sip' and self.sip_enabled and dial_sip:
             response.append(dial_sip)
-        elif self.ring_second == 'client':
+        elif self.ring_second == 'client' and self.client_enabled and dial_client:
             response.append(dial_client)
+        
         # Voicemail
-        if user.voicemail_enabled:
+        if self.voicemail_enabled:
             # The call voicemail
             voicemail_record_status_url = urljoin(api_url, 'twilio/webhook/vm_recordingstatus')
+            response.pause(length=1)
             self.get_voicemail_prompt(response)
             response.record(
                 maxLength=120,
                 finishOnKey='#',
                 playBeep=True,
                 recordingStatusCallback=voicemail_record_status_url)
+        
         debug(self, pretty_xml(response.to_xml()))
         return response.to_xml()
 
