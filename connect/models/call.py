@@ -138,6 +138,84 @@ class Call(models.Model):
                 record.duration_minutes = 0
                 record.duration_human = "00:00"
 
+    def _update_call_status_from_channels(self):
+        """
+        Update the call's status based on its channels' statuses.
+        For calls with multiple channels (transfers), use the most meaningful status.
+        Priority: completed > failed > busy > no-answer > canceled > other statuses
+        """
+        self.ensure_one()
+        
+        if not self.channels:
+            logger.warning(f"Call {self.id} has no channels to determine status from")
+            return
+        
+        # Define status priority (higher number = higher priority)
+        status_priority = {
+            'completed': 5,
+            'failed': 4, 
+            'busy': 3,
+            'no-answer': 2,
+            'canceled': 1,
+        }
+        
+        # Get all channel statuses
+        channel_statuses = self.channels.mapped('status')
+        logger.debug(f"Call {self.id} channel statuses: {channel_statuses}")
+        
+        # If any channel completed successfully, the call is completed
+        if 'completed' in channel_statuses:
+            new_status = 'completed'
+        else:
+            # Find the highest priority status among channels
+            current_priority = 0
+            new_status = self.status or 'no-answer'  # Default fallback
+            
+            for status in channel_statuses:
+                if status in status_priority:
+                    priority = status_priority[status]
+                    if priority > current_priority:
+                        current_priority = priority
+                        new_status = status
+        
+        # Only update if status actually changed
+        if self.status != new_status:
+            logger.info(f"Updating call {self.id} status from '{self.status}' to '{new_status}'")
+            self.status = new_status
+            
+            # Update answered user for completed calls
+            if new_status == 'completed':
+                self._update_answered_user_from_channels()
+        else:
+            logger.debug(f"Call {self.id} status remains '{self.status}'")
+
+    def _update_answered_user_from_channels(self):
+        """
+        Set the answered user based on the final/last channel that completed.
+        For transfers, this should be the user who ultimately handled the call.
+        """
+        self.ensure_one()
+        
+        # Find the last completed channel (by ID, which represents chronological order)
+        completed_channels = self.channels.filtered(lambda c: c.status == 'completed')
+        if not completed_channels:
+            logger.warning(f"Call {self.id} marked as completed but no completed channels found")
+            return
+        
+        # Get the last (newest) completed channel
+        final_channel = completed_channels.sorted(key='id', reverse=True)[0]
+        logger.debug(f"Call {self.id} final completed channel: {final_channel.id}")
+        
+        # Set answered PBX user from the final channel
+        if final_channel.called_pbx_user:
+            self.answered_pbx_user = final_channel.called_pbx_user
+            # Set answered Odoo user if PBX user has associated Odoo user
+            if final_channel.called_pbx_user.user:
+                self.answered_user = final_channel.called_pbx_user.user
+                logger.debug(f"Call {self.id} answered by user: {self.answered_user.login}")
+        else:
+            logger.warning(f"Final channel {final_channel.id} has no called_pbx_user")
+
     def write(self, vals):
         return super().write(vals)
 
@@ -184,27 +262,32 @@ class Call(models.Model):
                 channel.call.direction = 'internal'
             elif channel.called_pbx_user and channel.parent_channel.caller_pbx_user:
                 channel.call.direction = 'internal'
-        # Set call status from the last channel
-        channel.call.status = channel.call.channels.sorted(key='id', reverse=True)[0].status
-        # Set call duration from the first channel
-        channel.call.duration = channel.call.channels.sorted(key='id', reverse=False)[0].duration
+                
         # Set called from 2nd call leg for click2call external calls.
-        if channel.parent_channel.technical_direction == 'outbound-api':
+        if channel.parent_channel and channel.parent_channel.technical_direction == 'outbound-api':
             channel.call.called = channel.called_number
         # Set called users
         if channel.called_user:
             channel.call.called_users = [(4, channel.called_user.id)]
         if channel.called_pbx_user:
             channel.call.called_pbx_users = [(4, channel.called_pbx_user.id)]
-        # Set the answered user
-        if channel.call.status == 'completed':
-            # Set call answered user from the last channel
-            answered_user = channel.call.channels[0].called_pbx_user
-            channel.call.answered_pbx_user = answered_user
-            channel.call.answered_user = answered_user.user
         # Check if we need to set a partner from child channel
         if not channel.call.partner and channel.partner:
             channel.call.partner = channel.partner
+            
+        # Update call status and duration based on all channels
+        if channel.call:
+            # Always update call status when any channel status changes
+            channel.call._update_call_status_from_channels()
+            
+            # Set call duration as sum of all channel durations
+            if channel.call.channels:
+                total_duration = sum(channel.call.channels.mapped('duration') or [0])
+                channel.call.duration = total_duration
+                logger.debug(f"Call {channel.call.id} total duration updated to {total_duration} seconds from {len(channel.call.channels)} channels")
+            
+        # REMOVE THE OLD ANSWERED USER LOGIC - now handled by _update_call_status_from_channels()
+        
         if (channel.call.direction == 'incoming' and params.get('CallStatus') == 'initiated' and
                 params.get('To').startswith('sip:')):
             # Desktop notification only for SIP calls.
