@@ -148,7 +148,7 @@ export class Phone extends Component {
         this.action = useService('action')
         this.notification = useService("notification")
 
-        this.notify = (message, {title = 'Connect', sticky = null, type = 'info'}) => {
+        this.notify = (message, {title = 'Connect Phone Calls', sticky = null, type = 'info'}) => {
             if (sticky === null) {
                 sticky = this.call_popup_is_sticky
             }
@@ -452,7 +452,7 @@ export class Phone extends Component {
 
     async setCallStatus(status) {
         const currentCallStatus = this.callStatus[status] ? this.callStatus[status] : this.callStatus.Failed
-        this.notify(currentCallStatus.toUpperCase(), {sticky: false})
+        // this.notify(currentCallStatus.toUpperCase(), {sticky: false})
     }
 
     async updateToken() {
