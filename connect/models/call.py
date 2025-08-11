@@ -249,244 +249,103 @@ class Call(models.Model):
         
         logger.info(f"=== END CALL STATUS DEBUG FOR CALL {self.id} ===")
 
-    def _update_answered_user_from_channels(self):
-        """
-        Set the answered user based on the final/last channel that completed.
-        For transfers, this should be the user who ultimately handled the call.
-        """
-        self.ensure_one()
-        
-        logger.info(f"=== DEBUGGING ANSWERED USER UPDATE FOR CALL {self.id} ===")
-        logger.info(f"Call {self.id} current answered_user: {self.answered_user.login if self.answered_user else 'None'}")
-        logger.info(f"Call {self.id} current answered_pbx_user: {self.answered_pbx_user.name if self.answered_pbx_user else 'None'}")
-        
-        # Find the last completed channel (by ID, which represents chronological order)
-        completed_channels = self.channels.filtered(lambda c: c.status == 'completed')
-        
-        logger.info(f"Call {self.id} found {len(completed_channels)} completed channels:")
-        for channel in completed_channels.sorted('id'):
-            pbx_user = channel.called_pbx_user.name if channel.called_pbx_user else "None"
-            odoo_user = channel.called_pbx_user.user.login if channel.called_pbx_user and channel.called_pbx_user.user else "None"
-            logger.info(f"  Completed channel: ID={channel.id}, called_pbx_user={pbx_user}, odoo_user={odoo_user}")
-        
-        if not completed_channels:
-            logger.warning(f"Call {self.id} marked as completed but no completed channels found")
-            logger.info(f"=== END ANSWERED USER DEBUG FOR CALL {self.id} ===")
-            return
-        
-        # Get the last (newest) completed channel
-        final_channel = completed_channels.sorted(key='id', reverse=True)[0]
-        logger.info(f"Call {self.id} final completed channel: ID={final_channel.id}")
-        
-        # Set answered PBX user from the final channel
-        if final_channel.called_pbx_user:
-            old_answered_pbx_user = self.answered_pbx_user.name if self.answered_pbx_user else "None"
-            self.answered_pbx_user = final_channel.called_pbx_user
-            logger.info(f"Call {self.id} answered_pbx_user: {old_answered_pbx_user} -> {self.answered_pbx_user.name}")
-            
-            # Set answered Odoo user if PBX user has associated Odoo user
-            if final_channel.called_pbx_user.user:
-                old_answered_user = self.answered_user.login if self.answered_user else "None"
-                self.answered_user = final_channel.called_pbx_user.user
-                logger.info(f"Call {self.id} answered_user: {old_answered_user} -> {self.answered_user.login}")
-            else:
-                logger.warning(f"Final channel {final_channel.id} called_pbx_user has no linked Odoo user")
-        else:
-            logger.warning(f"Final channel {final_channel.id} has no called_pbx_user")
-        
-        logger.info(f"=== END ANSWERED USER DEBUG FOR CALL {self.id} ===")
 
     def _update_transferred_users_from_channels(self):
         """
-        Update the transferred_users field based on actual user-to-user transfers.
-        Enhanced with additional debugging to understand transfer detection.
+        Update the transferred_users field based on ACTUAL transfer wizard activity.
+        Uses chatter messages as the authoritative source for transfer detection.
         """
         self.ensure_one()
         
-        logger.info(f"=== ENHANCED TRANSFER DEBUG FOR CALL {self.id} ===")
-        logger.info(f"Call {self.id} current status: {self.status}")
+        logger.info(f"=== TRANSFER DETECTION USING CHATTER MESSAGES FOR CALL {self.id} ===")
         logger.info(f"Call {self.id} current answered_user: {self.answered_user.login if self.answered_user else 'None'}")
         logger.info(f"Call {self.id} current transferred_users: {[u.login for u in self.transferred_users]}")
         
-        # Log all channels with enhanced information
-        logger.info(f"Call {self.id} has {len(self.channels)} total channels:")
-        for i, channel in enumerate(self.channels.sorted('id')):
-            parent_info = f"parent_channel={channel.parent_channel.id}" if channel.parent_channel else "parent_channel=None"
-            caller_user = channel.caller_pbx_user.name if channel.caller_pbx_user else "None"
-            called_user = channel.called_pbx_user.name if channel.called_pbx_user else "None"
-            called_odoo_user = channel.called_user.login if channel.called_user else "None"
-            
-            logger.info(f"  Channel {i+1}: ID={channel.id}, status={channel.status}, {parent_info}")
-            logger.info(f"    caller_pbx_user={caller_user}, called_pbx_user={called_user}")
-            logger.info(f"    called_user(Odoo)={called_odoo_user}")
-            logger.info(f"    technical_direction={channel.technical_direction}")
-            logger.info(f"    duration={channel.duration}, created_at={channel.create_date}")
-            
-            # ENHANCED: Look for additional clues about transfers
-            # Check if this channel has any special attributes that indicate transfers
-            if hasattr(channel, 'transfer_initiated_by'):
-                logger.info(f"    transfer_initiated_by={channel.transfer_initiated_by}")
-            if hasattr(channel, 'transfer_type'):
-                logger.info(f"    transfer_type={channel.transfer_type}")
-            if hasattr(channel, 'call_sid'):
-                logger.info(f"    call_sid={channel.call_sid}")
-            
-            # Log channel relationships and timing patterns
-            if channel.parent_channel:
-                time_diff = (channel.create_date - channel.parent_channel.create_date).total_seconds()
-                logger.info(f"    time_since_parent_created={time_diff}s")
-                
-                # Check if parent had any activity before this child was created
-                parent_had_activity = channel.parent_channel.status not in ['initiated', 'ringing']
-                logger.info(f"    parent_had_activity_before_child={parent_had_activity}")
-        
-        # ENHANCED: Look for transfer-related records in other models
-        logger.info(f"=== CHECKING FOR TRANSFER RECORDS ===")
-        
-        # Check if there are any transfer wizard records associated with this call
-        if hasattr(self.env, 'connect.transfer_wizard'):
-            transfer_records = self.env['connect.transfer_wizard'].search([
-                '|', ('call_id', '=', self.id), ('session_id', 'in', self.channels.mapped('call_sid'))
-            ])
-            logger.info(f"Found {len(transfer_records)} transfer wizard records")
-            for transfer in transfer_records:
-                logger.info(f"  Transfer record: session={transfer.session_id}, target={transfer.phone_number}")
-        
-        # ENHANCED: Analyze channel creation patterns
-        logger.info(f"=== ANALYZING CHANNEL PATTERNS ===")
-        
-        # Group channels by creation time windows
-        root_channels = self.channels.filtered(lambda c: not c.parent_channel)
-        child_channels = self.channels.filtered(lambda c: c.parent_channel)
-        
-        logger.info(f"Root channels: {len(root_channels)}")
-        logger.info(f"Child channels: {len(child_channels)}")
-        
-        # For child channels, analyze their creation timing relative to their parent's status changes
-        simultaneous_threshold = 5  # seconds - channels created within this window might be simultaneous
-        
-        for channel in child_channels:
-            if channel.parent_channel:
-                time_diff = (channel.create_date - channel.parent_channel.create_date).total_seconds()
-                
-                # Classify channel creation timing
-                if time_diff < simultaneous_threshold:
-                    timing_classification = "SIMULTANEOUS"
-                else:
-                    timing_classification = "SEQUENTIAL" 
-                    
-                logger.info(f"  Channel {channel.id}: {timing_classification} (created {time_diff:.1f}s after parent)")
-                
-                # Check what the parent channel status was when this child was created
-                # Note: We can't know historical status, but we can infer from patterns
-                if channel.called_user and channel.parent_channel.status == 'ringing':
-                    logger.info(f"    Pattern: Child created while parent still ringing - likely SIMULTANEOUS_RING")
-                elif channel.called_user and time_diff > simultaneous_threshold:
-                    logger.info(f"    Pattern: Child created well after parent - likely TRANSFER")
-        
-        # ENHANCED: Look for specific transfer indicators
-        logger.info(f"=== TRANSFER INDICATORS ===")
-        
-        # Indicator 1: Check if answered user appears in later channels as caller
-        if self.answered_user:
-            answered_user_as_caller = self.channels.filtered(
-                lambda c: c.caller_pbx_user and c.caller_pbx_user.user == self.answered_user
-            )
-            if answered_user_as_caller:
-                logger.info(f"INDICATOR: Answered user {self.answered_user.login} appears as caller in channels: {answered_user_as_caller.mapped('id')}")
-        
-        # Indicator 2: Check for channels created significantly after call start
-        call_start = min(self.channels.mapped('create_date'))
-        for channel in child_channels:
-            seconds_since_start = (channel.create_date - call_start).total_seconds()
-            if seconds_since_start > 10:  # More than 10 seconds after call start
-                logger.info(f"INDICATOR: Channel {channel.id} created {seconds_since_start:.1f}s after call start - possible transfer")
-        
-        # Continue with existing logic but with enhanced context
         transferred_user_ids = []
         
+        # Only process if someone actually answered the call initially
         if not self.answered_user:
-            logger.info(f"Call {self.id} has no answered_user, no transfers possible - clearing transferred_users")
+            logger.info(f"Call {self.id} has no answered_user, no transfers possible")
             self.transferred_users = [(5, 0, 0)]
             return
         
-        # Find answered channels
-        answered_channels = self.channels.filtered(
-            lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user == self.answered_user
+        # AUTHORITATIVE METHOD: Look for transfer messages in chatter
+        logger.info(f"=== SEARCHING CHATTER FOR TRANSFER MESSAGES ===")
+        
+        # Search for messages containing transfer attempts
+        transfer_messages = self.message_ids.filtered(
+            lambda m: 'transfer attempted to' in (m.body or '').lower()
         )
         
-        if not answered_channels:
-            logger.info(f"Call {self.id} no completed channels found for answered_user - clearing transferred_users")
-            self.transferred_users = [(5, 0, 0)]
-            return
+        logger.info(f"Found {len(transfer_messages)} transfer attempt messages:")
         
-        first_answer_channel = answered_channels.sorted('id')[0]
-        first_answer_time = first_answer_channel.id
-        logger.info(f"Call {self.id} first answered at channel ID: {first_answer_time}")
+        for message in transfer_messages:
+            logger.info(f"  Transfer message: {message.body}")
+            
+            # Extract target from message body
+            # Format: "{type} transfer attempted to {target}"
+            try:
+                body_lower = message.body.lower()
+                if 'transfer attempted to' in body_lower:
+                    # Extract the target (extension number or phone number)
+                    target_start = body_lower.find('transfer attempted to') + len('transfer attempted to ')
+                    target_text = message.body[target_start:].strip()
+                    
+                    logger.info(f"    Extracted target: '{target_text}'")
+                    
+                    # Try to find the user for this target
+                    target_user = self._resolve_transfer_target_to_user(target_text)
+                    if target_user:
+                        logger.info(f"    Resolved to user: {target_user.login}")
+                        if target_user.id not in transferred_user_ids:
+                            transferred_user_ids.append(target_user.id)
+                            logger.info(f"    -> ADDED to transferred_users: {target_user.login}")
+                    else:
+                        logger.info(f"    Could not resolve target '{target_text}' to user")
+            except Exception as e:
+                logger.warning(f"Error parsing transfer message: {e}")
         
-        # ENHANCED: Apply more sophisticated transfer detection
-        logger.info(f"=== SOPHISTICATED TRANSFER DETECTION ===")
-        
-        potential_transfer_channels = self.channels.filtered(
-            lambda c: (
-                c.parent_channel and  # Has a parent (is a child channel)
-                c.id > first_answer_time and  # Created after initial answer
-                c.called_user and  # Has a target user (not system process)
-                c.called_user != self.answered_user  # Different from original answerer
-            )
-        ).sorted('id')
-        
-        logger.info(f"Found {len(potential_transfer_channels)} potential transfer channels")
-        
-        for channel in potential_transfer_channels:
-            time_since_answer = (channel.create_date - first_answer_channel.create_date).total_seconds()
-            
-            # Apply heuristics to determine if this is really a transfer
-            is_likely_transfer = False
-            reasons = []
-            
-            # Heuristic 1: Created well after answer (not simultaneous)
-            if time_since_answer > simultaneous_threshold:
-                is_likely_transfer = True
-                reasons.append(f"created {time_since_answer:.1f}s after answer")
-            
-            # Heuristic 2: Check if there's a gap in channel creation (suggests user action)
-            prev_channels = self.channels.filtered(lambda c: c.id < channel.id).sorted('id', reverse=True)
-            if prev_channels:
-                last_channel = prev_channels[0]
-                gap_time = (channel.create_date - last_channel.create_date).total_seconds()
-                if gap_time > 2:  # 2+ second gap suggests user-initiated action
-                    is_likely_transfer = True
-                    reasons.append(f"gap of {gap_time:.1f}s since last channel")
-            
-            # Heuristic 3: Different technical_direction pattern
-            if channel.technical_direction == 'outbound-dial' and channel.parent_channel.technical_direction == 'inbound':
-                reasons.append("outbound-dial from inbound parent")
-            
-            logger.info(f"  Channel {channel.id} -> {channel.called_user.login}:")
-            logger.info(f"    is_likely_transfer={is_likely_transfer}")
-            logger.info(f"    reasons: {', '.join(reasons) if reasons else 'none'}")
-            logger.info(f"    time_since_answer={time_since_answer:.1f}s")
-            
-            if is_likely_transfer:
-                user_id = channel.called_user.id
-                if user_id not in transferred_user_ids:
-                    transferred_user_ids.append(user_id)
-                    logger.info(f"    -> ADDED to transferred_users: {channel.called_user.login}")
-            else:
-                logger.info(f"    -> REJECTED as transfer (likely simultaneous ring)")
-        
-        # Update the field
+        # Update the many2many field
         if transferred_user_ids:
             new_transferred_users = self.env['res.users'].browse(transferred_user_ids)
             self.transferred_users = [(6, 0, transferred_user_ids)]
             logger.info(f"Call {self.id} transferred_users updated to: {[u.login for u in new_transferred_users]}")
         else:
             self.transferred_users = [(5, 0, 0)]
-            logger.info(f"Call {self.id} no valid transfers found, transferred_users cleared")
+            logger.info(f"Call {self.id} no transfer messages found, transferred_users cleared")
         
-        logger.info(f"=== END ENHANCED TRANSFER DEBUG FOR CALL {self.id} ===")
+        logger.info(f"=== END CHATTER-BASED TRANSFER DETECTION FOR CALL {self.id} ===")
 
+    def _resolve_transfer_target_to_user(self, target_text):
+        """
+        Resolve a transfer target (extension number or phone) to an Odoo user.
+        
+        :param target_text: Target from chatter message (e.g., "100", "+1234567890")
+        :return: res.users record or None
+        """
+        try:
+            # Clean up the target text
+            target = target_text.strip()
+            
+            # Check if it's an extension number (digits only)
+            if target.isdigit():
+                # Look up extension
+                extension = self.env['connect.exten'].search([('number', '=', target)], limit=1)
+                if extension and extension.dst and extension.dst._name == 'connect.user':
+                    connect_user = extension.dst
+                    if connect_user.user:
+                        logger.debug(f"Extension {target} resolved to user {connect_user.user.login}")
+                        return connect_user.user
+            
+            # Could add phone number lookup here if needed
+            # For now, focusing on extension-based transfers
+            
+            return None
+            
+        except Exception as e:
+            logger.warning(f"Error resolving transfer target '{target_text}': {e}")
+            return None
+    
     def write(self, vals):
         return super().write(vals)
 
