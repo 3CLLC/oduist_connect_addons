@@ -151,7 +151,9 @@ class Call(models.Model):
         """
         Update the call's status based on its channels' statuses.
         For calls with multiple channels (transfers), use the most meaningful status.
-        Priority: completed > failed > busy > no-answer > canceled > other statuses
+        Priority: completed (by user) > failed > busy > no-answer > canceled > other statuses
+        
+        A call is only "completed" if an actual user answered it, not just voicemail.
         """
         self.ensure_one()
         
@@ -172,20 +174,36 @@ class Call(models.Model):
         channel_statuses = self.channels.mapped('status')
         logger.debug(f"Call {self.id} channel statuses: {channel_statuses}")
         
-        # If any channel completed successfully, the call is completed
-        if 'completed' in channel_statuses:
+        # Check if any channel was actually answered by a user (not just voicemail)
+        user_answered_channels = self.channels.filtered(
+            lambda c: c.status == 'completed' and c.called_pbx_user
+        )
+        
+        if user_answered_channels:
+            # A user actually answered the call
             new_status = 'completed'
+            logger.debug(f"Call {self.id} answered by user in channels: {user_answered_channels.mapped('id')}")
         else:
-            # Find the highest priority status among channels
-            current_priority = 0
-            new_status = self.status or 'no-answer'  # Default fallback
+            # No user answered - check for voicemail or determine best status
+            voicemail_channels = self.channels.filtered(
+                lambda c: c.status == 'completed' and not c.called_pbx_user
+            )
             
-            for status in channel_statuses:
-                if status in status_priority:
-                    priority = status_priority[status]
-                    if priority > current_priority:
-                        current_priority = priority
-                        new_status = status
+            if voicemail_channels:
+                # Call went to voicemail only
+                logger.debug(f"Call {self.id} went to voicemail in channels: {voicemail_channels.mapped('id')}")
+                new_status = 'no-answer'  # Voicemail = no human answered
+            else:
+                # Find the highest priority status among non-completed channels
+                current_priority = 0
+                new_status = self.status or 'no-answer'  # Default fallback
+                
+                for status in channel_statuses:
+                    if status in status_priority and status != 'completed':
+                        priority = status_priority[status]
+                        if priority > current_priority:
+                            current_priority = priority
+                            new_status = status
         
         # Only update if status actually changed
         if self.status != new_status:
@@ -227,31 +245,62 @@ class Call(models.Model):
 
     def _update_transferred_users_from_channels(self):
         """
-        Update the transferred_users field based on channels with parent relationships.
-        Only tracks actual users, not system processes like voicemail.
+        Update the transferred_users field based on actual user-to-user transfers.
+        
+        A transfer only occurs when:
+        1. Someone answered the call first (answered_user exists)
+        2. Then they transfer it to another user (child channel created after answer)
+        
+        This excludes:
+        - Initial call distribution to multiple users (not transfers)
+        - Voicemail recordings (system processes)
+        - Unanswered call attempts
         """
         self.ensure_one()
         
-        # Find all child channels (indicating transfers occurred)
-        child_channels = self.channels.filtered('parent_channel')
-        
-        if not child_channels:
-            # No transfers occurred
-            return
-        
+        # Clear transferred users by default
         transferred_user_ids = []
         
-        for channel in child_channels.sorted('id'):  # Process in chronological order
-            # Only track if channel has an actual user (called_user)
-            # Skip system processes like voicemail which don't have users
-            if channel.called_user:
-                user_id = channel.called_user.id
-                # Add to list if not already present (avoid duplicates)
-                if user_id not in transferred_user_ids:
-                    transferred_user_ids.append(user_id)
-                    logger.debug(f"Call {self.id} transfer detected to user: {channel.called_user.login}")
-            else:
-                logger.debug(f"Call {self.id} child channel {channel.id} has no called_user, skipping transfer tracking")
+        # Only process if someone actually answered the call initially
+        if not self.answered_user:
+            logger.debug(f"Call {self.id} has no answered_user, no transfers possible")
+            self.transferred_users = [(5, 0, 0)]  # Clear the field
+            return
+        
+        # Find channels where the answered user was involved
+        answered_user_channels = self.channels.filtered(
+            lambda c: c.called_pbx_user and c.called_pbx_user.user == self.answered_user
+        )
+        
+        if not answered_user_channels:
+            logger.debug(f"Call {self.id} no channels found for answered_user {self.answered_user.login}")
+            self.transferred_users = [(5, 0, 0)]  # Clear the field
+            return
+        
+        # Get the earliest answered user channel (when they first answered)
+        first_answered_channel = answered_user_channels.sorted('id')[0]
+        logger.debug(f"Call {self.id} first answered channel: {first_answered_channel.id} by {self.answered_user.login}")
+        
+        # Look for child channels created AFTER the call was answered
+        # These represent actual transfers FROM the answered user TO other users
+        transfer_channels = self.channels.filtered(
+            lambda c: (
+                c.parent_channel and  # Has a parent (is a child channel)
+                c.id > first_answered_channel.id and  # Created after initial answer
+                c.called_user and  # Has a target user (not system process)
+                c.called_user != self.answered_user  # Different from original answerer
+            )
+        ).sorted('id')  # Process in chronological order
+        
+        logger.debug(f"Call {self.id} found {len(transfer_channels)} potential transfer channels")
+        
+        # Track unique users who received transfers
+        for channel in transfer_channels:
+            user_id = channel.called_user.id
+            # Add to list if not already present (avoid duplicates)
+            if user_id not in transferred_user_ids:
+                transferred_user_ids.append(user_id)
+                logger.debug(f"Call {self.id} transfer detected to user: {channel.called_user.login} (channel {channel.id})")
         
         # Update the many2many field
         if transferred_user_ids:
@@ -261,7 +310,7 @@ class Call(models.Model):
         else:
             # Clear the field if no valid transfers found
             self.transferred_users = [(5, 0, 0)]
-            logger.debug(f"Call {self.id} no valid transfer users found, clearing transferred_users")
+            logger.debug(f"Call {self.id} no valid transfers found, clearing transferred_users")
 
     def write(self, vals):
         return super().write(vals)
