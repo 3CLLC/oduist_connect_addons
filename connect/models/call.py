@@ -279,8 +279,9 @@ class Call(models.Model):
 
     def _update_answered_user_from_channels(self):
         """
-        Set the answered user based on the final/last channel that completed.
+        Set the answered user based on the final/last channel that was answered by a user.
         For transfers, this should be the user who ultimately handled the call.
+        Now handles both completed and in-progress channels.
         """
         self.ensure_one()
         
@@ -288,23 +289,25 @@ class Call(models.Model):
         logger.info(f"Call {self.id} current answered_user: {self.answered_user.login if self.answered_user else 'None'}")
         logger.info(f"Call {self.id} current answered_pbx_user: {self.answered_pbx_user.name if self.answered_pbx_user else 'None'}")
         
-        # Find the last completed channel (by ID, which represents chronological order)
-        completed_channels = self.channels.filtered(lambda c: c.status == 'completed')
+        # Find channels that were answered by users (completed OR in-progress with pbx_user)
+        answered_channels = self.channels.filtered(
+            lambda c: c.status in ['completed', 'in-progress'] and c.called_pbx_user
+        )
         
-        logger.info(f"Call {self.id} found {len(completed_channels)} completed channels:")
-        for channel in completed_channels.sorted('id'):
+        logger.info(f"Call {self.id} found {len(answered_channels)} answered channels (completed or in-progress):")
+        for channel in answered_channels.sorted('id'):
             pbx_user = channel.called_pbx_user.name if channel.called_pbx_user else "None"
             odoo_user = channel.called_pbx_user.user.login if channel.called_pbx_user and channel.called_pbx_user.user else "None"
-            logger.info(f"  Completed channel: ID={channel.id}, called_pbx_user={pbx_user}, odoo_user={odoo_user}")
+            logger.info(f"  Answered channel: ID={channel.id}, status={channel.status}, called_pbx_user={pbx_user}, odoo_user={odoo_user}")
         
-        if not completed_channels:
-            logger.warning(f"Call {self.id} marked as completed but no completed channels found")
+        if not answered_channels:
+            logger.warning(f"Call {self.id} no answered channels found (neither completed nor in-progress with pbx_user)")
             logger.info(f"=== END ANSWERED USER DEBUG FOR CALL {self.id} ===")
             return
         
-        # Get the last (newest) completed channel
-        final_channel = completed_channels.sorted(key='id', reverse=True)[0]
-        logger.info(f"Call {self.id} final completed channel: ID={final_channel.id}")
+        # Get the last (newest) answered channel - this represents the final answerer
+        final_channel = answered_channels.sorted(key='id', reverse=True)[0]
+        logger.info(f"Call {self.id} final answered channel: ID={final_channel.id}, status={final_channel.status}")
         
         # Set answered PBX user from the final channel
         if final_channel.called_pbx_user:
