@@ -35,6 +35,7 @@
                 <field name="caller_user" optional="show"/>
                 <field name="called_users" widget="many2many_tags" optional="show"/>
                 <field name="answered_user" optional="show"/>
+                <field name="transferred_users" widget="many2many_tags" optional="show"/>
                 <field name="caller_pbx_user" optional="hide"/>
                 <field name="called_pbx_users" optional="hide" widget="many2many_tags"/>
                 <field name="duration" optional="hide"/>
@@ -92,6 +93,10 @@
                                             <field name="answered_user"/>
                                             <field name="answered_user_img" style="float: left" widget="image" class="oe_avatar"/>
                                             <div>Answered User</div>
+                                        </div>
+                                        <div class="d-flex flex-column" calspan="1" style="flex: 1" invisible="transferred_users == False">
+                                            <field name="transferred_users" widget="many2many_tags" options="{'no_create': True}"/>
+                                            <div>Transferred to</div>
                                         </div>
                                     </div>
                                 </group>
@@ -188,7 +193,9 @@
                 <filter name="by_partner" context="{'group_by': 'partner'}"/>
                 <filter name="by_caller_user" context="{'group_by': 'caller_user'}"/>
                 <filter name="by_called_user" context="{'group_by': 'called_users'}"/>
-                <filter name="by_answered_user" context="{'group_by': 'answered_user'}"/>
+                <filter name="by_transferred_users" context="{'group_by': 'transferred_users'}"/>
+                <filter name="by_answered_user" context="{'group_by': 'answered_user'}"/><filter name="with_transfers" string="With Transfers" domain="[('transferred_users', '!=', False)]"/>
+                <filter name="without_transfers" string="Direct Calls" domain="[('transferred_users', '=', False)]"/>
                 <filter name="by_direction" context="{'group_by': 'direction'}"/>
                 <filter name="by_status" context="{'group_by': 'status'}"/>
                 <filter name="by_created" context="{'group_by': 'create_date'}"/>
