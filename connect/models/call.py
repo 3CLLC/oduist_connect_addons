@@ -53,6 +53,15 @@ class Call(models.Model):
     called_users = fields.Many2many('res.users', readonly=True)
     answered_user = fields.Many2one('res.users', ondelete='set null', string='Answered User', readonly=True)
     answered_user_img = fields.Binary(related='answered_user.image_1920', string='Answered User Avatar')
+    transferred_users = fields.Many2many(
+        'res.users', 
+        relation='connect_call_transferred_users_rel',
+        column1='call_id', 
+        column2='user_id',
+        string='Transferred Users', 
+        readonly=True,
+        help='Users who received this call via transfer (in chronological order)'
+    )
     # Scheduled fields.
     scheduled_datetime = fields.Datetime()
     # Voicemail fields
