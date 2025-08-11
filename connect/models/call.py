@@ -249,16 +249,15 @@ class Call(models.Model):
         
         A transfer only occurs when:
         1. Someone answered the call first (answered_user exists)
-        2. Then they transfer it to another user (child channel created after answer)
+        2. Then they initiate a transfer to another user (creates child channel AFTER answer)
         
         This excludes:
         - Initial call distribution to multiple users (not transfers)
         - Voicemail recordings (system processes)
-        - Unanswered call attempts
+        - Simultaneous ringing (parallel channels, not transfers)
         """
         self.ensure_one()
         
-        # Clear transferred users by default
         transferred_user_ids = []
         
         # Only process if someone actually answered the call initially
@@ -267,32 +266,32 @@ class Call(models.Model):
             self.transferred_users = [(5, 0, 0)]  # Clear the field
             return
         
-        # Find channels where the answered user was involved
-        answered_user_channels = self.channels.filtered(
-            lambda c: c.called_pbx_user and c.called_pbx_user.user == self.answered_user
+        # Find when the call was first answered by looking at completed channels with users
+        answered_channels = self.channels.filtered(
+            lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user == self.answered_user
         )
         
-        if not answered_user_channels:
-            logger.debug(f"Call {self.id} no channels found for answered_user {self.answered_user.login}")
+        if not answered_channels:
+            logger.debug(f"Call {self.id} no completed channels found for answered_user {self.answered_user.login}")
             self.transferred_users = [(5, 0, 0)]  # Clear the field
             return
         
-        # Get the earliest answered user channel (when they first answered)
-        first_answered_channel = answered_user_channels.sorted('id')[0]
-        logger.debug(f"Call {self.id} first answered channel: {first_answered_channel.id} by {self.answered_user.login}")
+        # Get the first time the answered user completed a channel (when they first answered)
+        first_answer_time = answered_channels.sorted('id')[0].id
+        logger.debug(f"Call {self.id} first answered at channel ID: {first_answer_time} by {self.answered_user.login}")
         
-        # Look for child channels created AFTER the call was answered
-        # These represent actual transfers FROM the answered user TO other users
+        # Look for child channels created AFTER the initial answer
+        # These represent actual transfers initiated AFTER someone picked up
         transfer_channels = self.channels.filtered(
             lambda c: (
                 c.parent_channel and  # Has a parent (is a child channel)
-                c.id > first_answered_channel.id and  # Created after initial answer
+                c.id > first_answer_time and  # Created after initial answer
                 c.called_user and  # Has a target user (not system process)
                 c.called_user != self.answered_user  # Different from original answerer
             )
         ).sorted('id')  # Process in chronological order
         
-        logger.debug(f"Call {self.id} found {len(transfer_channels)} potential transfer channels")
+        logger.debug(f"Call {self.id} found {len(transfer_channels)} transfer channels after answer")
         
         # Track unique users who received transfers
         for channel in transfer_channels:
