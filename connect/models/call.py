@@ -225,6 +225,44 @@ class Call(models.Model):
         else:
             logger.warning(f"Final channel {final_channel.id} has no called_pbx_user")
 
+    def _update_transferred_users_from_channels(self):
+        """
+        Update the transferred_users field based on channels with parent relationships.
+        Only tracks actual users, not system processes like voicemail.
+        """
+        self.ensure_one()
+        
+        # Find all child channels (indicating transfers occurred)
+        child_channels = self.channels.filtered('parent_channel')
+        
+        if not child_channels:
+            # No transfers occurred
+            return
+        
+        transferred_user_ids = []
+        
+        for channel in child_channels.sorted('id'):  # Process in chronological order
+            # Only track if channel has an actual user (called_user)
+            # Skip system processes like voicemail which don't have users
+            if channel.called_user:
+                user_id = channel.called_user.id
+                # Add to list if not already present (avoid duplicates)
+                if user_id not in transferred_user_ids:
+                    transferred_user_ids.append(user_id)
+                    logger.debug(f"Call {self.id} transfer detected to user: {channel.called_user.login}")
+            else:
+                logger.debug(f"Call {self.id} child channel {channel.id} has no called_user, skipping transfer tracking")
+        
+        # Update the many2many field
+        if transferred_user_ids:
+            # Use [(6, 0, ids)] to replace all existing records
+            self.transferred_users = [(6, 0, transferred_user_ids)]
+            logger.info(f"Call {self.id} transferred_users updated: {len(transferred_user_ids)} users")
+        else:
+            # Clear the field if no valid transfers found
+            self.transferred_users = [(5, 0, 0)]
+            logger.debug(f"Call {self.id} no valid transfer users found, clearing transferred_users")
+
     def write(self, vals):
         return super().write(vals)
 
@@ -294,6 +332,9 @@ class Call(models.Model):
                 total_duration = sum(channel.call.channels.mapped('duration') or [0])
                 channel.call.duration = total_duration
                 logger.debug(f"Call {channel.call.id} total duration updated to {total_duration} seconds from {len(channel.call.channels)} channels")
+            
+            # UPDATE TRANSFERRED USERS - Add this new line
+            channel.call._update_transferred_users_from_channels()
             
         # REMOVE THE OLD ANSWERED USER LOGIC - now handled by _update_call_status_from_channels()
         
