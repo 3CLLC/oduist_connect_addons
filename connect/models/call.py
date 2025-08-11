@@ -157,9 +157,24 @@ class Call(models.Model):
         """
         self.ensure_one()
         
+        logger.info(f"=== DEBUGGING CALL STATUS FOR CALL {self.id} ===")
+        logger.info(f"Call {self.id} current status: {self.status}")
+        
         if not self.channels:
             logger.warning(f"Call {self.id} has no channels to determine status from")
             return
+        
+        # Log all channel statuses and details
+        logger.info(f"Call {self.id} analyzing {len(self.channels)} channels for status determination:")
+        for i, channel in enumerate(self.channels.sorted('id')):
+            parent_info = f"parent={channel.parent_channel.id}" if channel.parent_channel else "root"
+            caller_pbx = channel.caller_pbx_user.name if channel.caller_pbx_user else "None"
+            called_pbx = channel.called_pbx_user.name if channel.called_pbx_user else "None"
+            called_user = channel.called_user.login if channel.called_user else "None"
+            
+            logger.info(f"  Channel {i+1}: ID={channel.id}, status={channel.status}, {parent_info}")
+            logger.info(f"    caller_pbx_user={caller_pbx}, called_pbx_user={called_pbx}")
+            logger.info(f"    called_user={called_user}, duration={channel.duration}")
         
         # Define status priority (higher number = higher priority)
         status_priority = {
@@ -172,49 +187,67 @@ class Call(models.Model):
         
         # Get all channel statuses
         channel_statuses = self.channels.mapped('status')
-        logger.debug(f"Call {self.id} channel statuses: {channel_statuses}")
+        logger.info(f"Call {self.id} all channel statuses: {channel_statuses}")
         
         # Check if any channel was actually answered by a user (not just voicemail)
         user_answered_channels = self.channels.filtered(
             lambda c: c.status == 'completed' and c.called_pbx_user
         )
         
+        logger.info(f"Call {self.id} found {len(user_answered_channels)} user-answered channels:")
+        for channel in user_answered_channels.sorted('id'):
+            user_name = channel.called_pbx_user.name
+            odoo_user = channel.called_pbx_user.user.login if channel.called_pbx_user.user else "None"
+            logger.info(f"  User-answered channel: ID={channel.id}, pbx_user={user_name}, odoo_user={odoo_user}")
+        
         if user_answered_channels:
             # A user actually answered the call
             new_status = 'completed'
-            logger.debug(f"Call {self.id} answered by user in channels: {user_answered_channels.mapped('id')}")
+            logger.info(f"Call {self.id} -> STATUS DECISION: completed (user answered)")
         else:
             # No user answered - check for voicemail or determine best status
             voicemail_channels = self.channels.filtered(
                 lambda c: c.status == 'completed' and not c.called_pbx_user
             )
             
+            logger.info(f"Call {self.id} found {len(voicemail_channels)} voicemail channels:")
+            for channel in voicemail_channels.sorted('id'):
+                logger.info(f"  Voicemail channel: ID={channel.id}, status={channel.status}")
+            
             if voicemail_channels:
                 # Call went to voicemail only
-                logger.debug(f"Call {self.id} went to voicemail in channels: {voicemail_channels.mapped('id')}")
+                logger.info(f"Call {self.id} -> STATUS DECISION: no-answer (voicemail only)")
                 new_status = 'no-answer'  # Voicemail = no human answered
             else:
                 # Find the highest priority status among non-completed channels
                 current_priority = 0
                 new_status = self.status or 'no-answer'  # Default fallback
                 
+                logger.info(f"Call {self.id} no user answers or voicemail, checking priority statuses:")
                 for status in channel_statuses:
                     if status in status_priority and status != 'completed':
                         priority = status_priority[status]
+                        logger.info(f"  Status '{status}' has priority {priority}")
                         if priority > current_priority:
                             current_priority = priority
                             new_status = status
+                            logger.info(f"    -> New highest priority status: {status}")
+                
+                logger.info(f"Call {self.id} -> STATUS DECISION: {new_status} (highest priority non-completed)")
         
         # Only update if status actually changed
         if self.status != new_status:
-            logger.info(f"Updating call {self.id} status from '{self.status}' to '{new_status}'")
+            logger.info(f"Call {self.id} STATUS CHANGE: '{self.status}' -> '{new_status}'")
             self.status = new_status
             
             # Update answered user for completed calls
             if new_status == 'completed':
+                logger.info(f"Call {self.id} updating answered user for completed call")
                 self._update_answered_user_from_channels()
         else:
-            logger.debug(f"Call {self.id} status remains '{self.status}'")
+            logger.info(f"Call {self.id} STATUS UNCHANGED: remains '{self.status}'")
+        
+        logger.info(f"=== END CALL STATUS DEBUG FOR CALL {self.id} ===")
 
     def _update_answered_user_from_channels(self):
         """
@@ -223,25 +256,45 @@ class Call(models.Model):
         """
         self.ensure_one()
         
+        logger.info(f"=== DEBUGGING ANSWERED USER UPDATE FOR CALL {self.id} ===")
+        logger.info(f"Call {self.id} current answered_user: {self.answered_user.login if self.answered_user else 'None'}")
+        logger.info(f"Call {self.id} current answered_pbx_user: {self.answered_pbx_user.name if self.answered_pbx_user else 'None'}")
+        
         # Find the last completed channel (by ID, which represents chronological order)
         completed_channels = self.channels.filtered(lambda c: c.status == 'completed')
+        
+        logger.info(f"Call {self.id} found {len(completed_channels)} completed channels:")
+        for channel in completed_channels.sorted('id'):
+            pbx_user = channel.called_pbx_user.name if channel.called_pbx_user else "None"
+            odoo_user = channel.called_pbx_user.user.login if channel.called_pbx_user and channel.called_pbx_user.user else "None"
+            logger.info(f"  Completed channel: ID={channel.id}, called_pbx_user={pbx_user}, odoo_user={odoo_user}")
+        
         if not completed_channels:
             logger.warning(f"Call {self.id} marked as completed but no completed channels found")
+            logger.info(f"=== END ANSWERED USER DEBUG FOR CALL {self.id} ===")
             return
         
         # Get the last (newest) completed channel
         final_channel = completed_channels.sorted(key='id', reverse=True)[0]
-        logger.debug(f"Call {self.id} final completed channel: {final_channel.id}")
+        logger.info(f"Call {self.id} final completed channel: ID={final_channel.id}")
         
         # Set answered PBX user from the final channel
         if final_channel.called_pbx_user:
+            old_answered_pbx_user = self.answered_pbx_user.name if self.answered_pbx_user else "None"
             self.answered_pbx_user = final_channel.called_pbx_user
+            logger.info(f"Call {self.id} answered_pbx_user: {old_answered_pbx_user} -> {self.answered_pbx_user.name}")
+            
             # Set answered Odoo user if PBX user has associated Odoo user
             if final_channel.called_pbx_user.user:
+                old_answered_user = self.answered_user.login if self.answered_user else "None"
                 self.answered_user = final_channel.called_pbx_user.user
-                logger.debug(f"Call {self.id} answered by user: {self.answered_user.login}")
+                logger.info(f"Call {self.id} answered_user: {old_answered_user} -> {self.answered_user.login}")
+            else:
+                logger.warning(f"Final channel {final_channel.id} called_pbx_user has no linked Odoo user")
         else:
             logger.warning(f"Final channel {final_channel.id} has no called_pbx_user")
+        
+        logger.info(f"=== END ANSWERED USER DEBUG FOR CALL {self.id} ===")
 
     def _update_transferred_users_from_channels(self):
         """
@@ -258,30 +311,73 @@ class Call(models.Model):
         """
         self.ensure_one()
         
+        logger.info(f"=== DEBUGGING TRANSFERRED USERS FOR CALL {self.id} ===")
+        logger.info(f"Call {self.id} current status: {self.status}")
+        logger.info(f"Call {self.id} current answered_user: {self.answered_user.login if self.answered_user else 'None'}")
+        logger.info(f"Call {self.id} current answered_pbx_user: {self.answered_pbx_user.name if self.answered_pbx_user else 'None'}")
+        logger.info(f"Call {self.id} current transferred_users: {[u.login for u in self.transferred_users]}")
+        
+        # Log all channels with detailed info
+        logger.info(f"Call {self.id} has {len(self.channels)} total channels:")
+        for i, channel in enumerate(self.channels.sorted('id')):
+            parent_info = f"parent_channel={channel.parent_channel.id}" if channel.parent_channel else "parent_channel=None"
+            caller_user = channel.caller_pbx_user.name if channel.caller_pbx_user else "None"
+            called_user = channel.called_pbx_user.name if channel.called_pbx_user else "None"
+            called_odoo_user = channel.called_user.login if channel.called_user else "None"
+            
+            logger.info(f"  Channel {i+1}: ID={channel.id}, status={channel.status}, {parent_info}")
+            logger.info(f"    caller_pbx_user={caller_user}, called_pbx_user={called_user}")
+            logger.info(f"    called_user(Odoo)={called_odoo_user}")
+            logger.info(f"    technical_direction={channel.technical_direction}")
+            logger.info(f"    duration={channel.duration}, created_at={channel.create_date}")
+        
         transferred_user_ids = []
         
         # Only process if someone actually answered the call initially
         if not self.answered_user:
-            logger.debug(f"Call {self.id} has no answered_user, no transfers possible")
+            logger.info(f"Call {self.id} has no answered_user, no transfers possible - clearing transferred_users")
             self.transferred_users = [(5, 0, 0)]  # Clear the field
             return
+        
+        logger.info(f"Call {self.id} answered_user exists: {self.answered_user.login}")
         
         # Find when the call was first answered by looking at completed channels with users
         answered_channels = self.channels.filtered(
             lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user == self.answered_user
         )
         
+        logger.info(f"Call {self.id} found {len(answered_channels)} completed channels for answered_user:")
+        for channel in answered_channels.sorted('id'):
+            logger.info(f"  Answered channel: ID={channel.id}, called_pbx_user={channel.called_pbx_user.name}")
+        
         if not answered_channels:
-            logger.debug(f"Call {self.id} no completed channels found for answered_user {self.answered_user.login}")
+            logger.info(f"Call {self.id} no completed channels found for answered_user {self.answered_user.login} - clearing transferred_users")
             self.transferred_users = [(5, 0, 0)]  # Clear the field
             return
         
         # Get the first time the answered user completed a channel (when they first answered)
-        first_answer_time = answered_channels.sorted('id')[0].id
-        logger.debug(f"Call {self.id} first answered at channel ID: {first_answer_time} by {self.answered_user.login}")
+        first_answer_channel = answered_channels.sorted('id')[0]
+        first_answer_time = first_answer_channel.id
+        logger.info(f"Call {self.id} first answered at channel ID: {first_answer_time} by {self.answered_user.login}")
+        logger.info(f"  First answer channel created at: {first_answer_channel.create_date}")
         
         # Look for child channels created AFTER the initial answer
         # These represent actual transfers initiated AFTER someone picked up
+        all_child_channels = self.channels.filtered('parent_channel')
+        logger.info(f"Call {self.id} has {len(all_child_channels)} total child channels:")
+        
+        for channel in all_child_channels.sorted('id'):
+            parent_info = f"parent={channel.parent_channel.id}" if channel.parent_channel else "no_parent"
+            called_user_info = channel.called_user.login if channel.called_user else "None"
+            called_pbx_user_info = channel.called_pbx_user.name if channel.called_pbx_user else "None"
+            is_after_answer = "YES" if channel.id > first_answer_time else "NO"
+            is_different_user = "YES" if channel.called_user and channel.called_user != self.answered_user else "NO"
+            
+            logger.info(f"  Child channel: ID={channel.id}, {parent_info}, status={channel.status}")
+            logger.info(f"    called_user={called_user_info}, called_pbx_user={called_pbx_user_info}")
+            logger.info(f"    created_after_answer={is_after_answer}, different_from_answerer={is_different_user}")
+            logger.info(f"    created_at={channel.create_date}")
+        
         transfer_channels = self.channels.filtered(
             lambda c: (
                 c.parent_channel and  # Has a parent (is a child channel)
@@ -291,25 +387,35 @@ class Call(models.Model):
             )
         ).sorted('id')  # Process in chronological order
         
-        logger.debug(f"Call {self.id} found {len(transfer_channels)} transfer channels after answer")
+        logger.info(f"Call {self.id} identified {len(transfer_channels)} valid transfer channels after answer:")
         
         # Track unique users who received transfers
         for channel in transfer_channels:
             user_id = channel.called_user.id
+            user_login = channel.called_user.login
+            
+            logger.info(f"  Transfer channel: ID={channel.id}, to_user={user_login}, status={channel.status}")
+            logger.info(f"    parent_channel={channel.parent_channel.id}, created_at={channel.create_date}")
+            
             # Add to list if not already present (avoid duplicates)
             if user_id not in transferred_user_ids:
                 transferred_user_ids.append(user_id)
-                logger.debug(f"Call {self.id} transfer detected to user: {channel.called_user.login} (channel {channel.id})")
+                logger.info(f"    -> ADDED to transferred_users: {user_login}")
+            else:
+                logger.info(f"    -> DUPLICATE, already in transferred_users: {user_login}")
         
         # Update the many2many field
         if transferred_user_ids:
             # Use [(6, 0, ids)] to replace all existing records
+            new_transferred_users = self.env['res.users'].browse(transferred_user_ids)
             self.transferred_users = [(6, 0, transferred_user_ids)]
-            logger.info(f"Call {self.id} transferred_users updated: {len(transferred_user_ids)} users")
+            logger.info(f"Call {self.id} transferred_users updated to: {[u.login for u in new_transferred_users]}")
         else:
             # Clear the field if no valid transfers found
             self.transferred_users = [(5, 0, 0)]
-            logger.debug(f"Call {self.id} no valid transfers found, clearing transferred_users")
+            logger.info(f"Call {self.id} no valid transfers found, transferred_users cleared")
+        
+        logger.info(f"=== END TRANSFERRED USERS DEBUG FOR CALL {self.id} ===")
 
     def write(self, vals):
         return super().write(vals)
