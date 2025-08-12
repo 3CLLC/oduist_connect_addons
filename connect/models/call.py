@@ -294,35 +294,31 @@ class Call(models.Model):
             self.completed_by_user = False
         
         # TRANSFERRED USERS: Include both successful and failed transfer recipients
-        # Look at all child channels that represent transfer attempts (completed or not)
+        # Look at ALL child channels (completed AND non-completed) for transfer recipients
         child_channels = self.channels.filtered(lambda c: c.parent_channel and c.called_pbx_user)
+        
         if child_channels:
-            # Sort by write_date to get chronological transfer order
-            child_channels_by_flow = child_channels.sorted('write_date')
+            # Find the first answerer using completed channels and chronological order
+            # (Keep existing logic for determining first answerer)
+            completed_child_channels = child_channels.filtered(lambda c: c.status == 'completed')
+            first_answerer_user_id = None
             
-            # Find the first answerer among child channels
-            first_answerer_channel = None
-            for channel in child_channels_by_flow:
-                if channel.status == 'completed' and channel.called_pbx_user and channel.called_pbx_user.user:
-                    first_answerer_channel = channel
-                    break
+            if completed_child_channels:
+                first_completed_channel = completed_child_channels.sorted('write_date')[0]
+                if first_completed_channel.called_pbx_user and first_completed_channel.called_pbx_user.user:
+                    first_answerer_user_id = first_completed_channel.called_pbx_user.user.id
+                    logger.debug(f"Call {self.id} first answerer: {first_completed_channel.called_pbx_user.user.login}")
             
-            # Transfer recipients are all channels after the first answerer
+            # Now look at ALL child channels (completed or not) for transfer recipients
+            # Exclude only the first answerer
             transfer_users = []
-            found_first_answerer = False
-            
-            for channel in child_channels_by_flow:
+            for channel in child_channels:
                 if channel.called_pbx_user and channel.called_pbx_user.user:
-                    if not found_first_answerer:
-                        # Check if this is the first answerer
-                        if channel == first_answerer_channel:
-                            found_first_answerer = True
-                            continue  # Skip the first answerer
-                    else:
-                        # This is a transfer recipient
-                        if channel.called_pbx_user.user.id not in transfer_users:
-                            transfer_users.append(channel.called_pbx_user.user.id)
-                            logger.debug(f"Added transfer recipient: {channel.called_pbx_user.user.login} (status: {channel.status})")
+                    user_id = channel.called_pbx_user.user.id
+                    # Include anyone who is NOT the first answerer
+                    if user_id != first_answerer_user_id and user_id not in transfer_users:
+                        transfer_users.append(user_id)
+                        logger.debug(f"Added transfer recipient: {channel.called_pbx_user.user.login} (status: {channel.status})")
             
             if transfer_users:
                 self.transferred_users = [(6, 0, transfer_users)]
