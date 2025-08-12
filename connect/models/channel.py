@@ -84,8 +84,20 @@ class Channel(models.Model):
     @api.model
     def on_call_status(self, params):
         debug(self, 'On channel status: %s' % json.dumps(params, indent=2))
+        
+        # ENHANCED BLIND TRANSFER LOGGING
+        logger.info(f"=== WEBHOOK RECEIVED ===")
+        logger.info(f"CallSid: {params.get('CallSid')}")
+        logger.info(f"CallStatus: {params.get('CallStatus')}")
+        logger.info(f"Direction: {params.get('Direction')}")
+        logger.info(f"From: {params.get('From')} | To: {params.get('To')}")
+        logger.info(f"Called: {params.get('Called')} | Caller: {params.get('Caller')}")
+        logger.info(f"ParentCallSid: {params.get('ParentCallSid')}")
+        logger.info(f"Duration: {params.get('CallDuration', 0)}")
+        logger.info(f"=== END WEBHOOK INFO ===")
         channel = self.search([('sid', '=', params['CallSid'])])
         if channel:
+            logger.info(f"FOUND EXISTING CHANNEL {channel.id} for SID {params['CallSid']}")
             # Update channel data.
             data = {
                 'called': params.get('Called'),
@@ -112,6 +124,7 @@ class Channel(models.Model):
                 channel._log_transfer_scenario_details()
         # Channel not found by sid, create it.
         else:
+            logger.info(f"CREATING NEW CHANNEL for SID {params['CallSid']}")
             data = {
                 'sid': params['CallSid'],
                 'called': params.get('Called'),
@@ -125,10 +138,17 @@ class Channel(models.Model):
             if channel.parent_sid:
                 parent_channel = self.search([('sid', '=', channel.parent_sid)])
                 data['parent_channel'] = parent_channel.id
+                logger.info(f"NEW CHANNEL: Found parent via parent_sid: {parent_channel.id}")
             elif params.get('ParentCallSid'):
                 parent_channel = self.search([('sid', '=', params.get('ParentCallSid'))])
-                data['parent_channel'] = parent_channel.id
-                data['parent_sid'] = parent_channel.parent_channel.sid
+                if parent_channel:
+                    data['parent_channel'] = parent_channel.id
+                    data['parent_sid'] = parent_channel.parent_channel.sid
+                    logger.info(f"NEW CHANNEL: Found parent via ParentCallSid: {parent_channel.id}")
+                else:
+                    logger.warning(f"NEW CHANNEL: ParentCallSid {params.get('ParentCallSid')} not found in existing channels!")
+            else:
+                logger.info(f"NEW CHANNEL: No parent relationship")
             # Find caller user
             caller_pbx_user = None
             called_pbx_user = None
@@ -141,6 +161,9 @@ class Channel(models.Model):
                 called_pbx_user = self.env['connect.user'].get_user_by_uri(params['Called'])
                 data['called_pbx_user'] = called_pbx_user.id
                 data['called_user'] = called_pbx_user.user.id
+                logger.info(f"NEW CHANNEL: Called PBX User = {called_pbx_user.name if called_pbx_user else 'None'}")
+            else:
+                logger.info(f"NEW CHANNEL: No Called user in params")
             # Find the partner
             if caller_pbx_user and params.get('Called'):
                 # User makes outgoing call.
