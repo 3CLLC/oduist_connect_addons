@@ -364,15 +364,31 @@ class CallForwardHandler(models.TransientModel):
             logger.info(f'Extension {extension_number} points to user: {user.name}')
             logger.info(f'User URI: {user.uri}')
             
-            # Track the transfer in the call record if we have a call_id
-            if call_id and user.user:
+            # Track the transfer in the call record
+            if user.user:
                 try:
-                    call = self.env['connect.call'].browse(call_id)
-                    if call.exists():
+                    # Try to find the call record from the session_id
+                    call = None
+                    if call_id:
+                        call = self.env['connect.call'].browse(call_id)
+                        logger.info(f'Using provided call_id {call_id} for transfer tracking')
+                    
+                    if not call or not call.exists():
+                        # Fallback: Find call by looking up channel with session_id
+                        channel = self.env['connect.channel'].search([('sid', '=', session_id)], limit=1)
+                        if channel and channel.call:
+                            call = channel.call
+                            logger.info(f'Found call {call.id} via channel lookup for session {session_id}')
+                        else:
+                            logger.warning(f'No call found for session {session_id}')
+                    
+                    if call and call.exists():
                         call.add_transferred_user(user.user)
-                        logger.info(f'Added transfer target {user.user.login} to call {call_id}')
+                        logger.info(f'Added transfer target {user.user.login} to call {call.id}')
+                    else:
+                        logger.warning(f'Could not find call record to track transfer to {user.user.login}')
                 except Exception as e:
-                    logger.warning(f'Failed to track transfer in call record: {e}')
+                    logger.error(f'Failed to track transfer in call record: {e}', exc_info=True)
             
             # Create different TwiML based on transfer type
             if transfer_type == 'blind':
