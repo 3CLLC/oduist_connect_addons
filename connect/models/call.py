@@ -293,41 +293,21 @@ class Call(models.Model):
             # Call not completed - clear completed_by_user
             self.completed_by_user = False
         
-        # TRANSFERRED USERS: Include both successful and failed transfer recipients
-        # Look at ALL child channels (completed AND non-completed) for transfer recipients
-        child_channels = self.channels.filtered(lambda c: c.parent_channel and c.called_pbx_user)
-        
-        if child_channels:
-            # Find the first answerer using completed channels and chronological order
-            # (Keep existing logic for determining first answerer)
-            completed_child_channels = child_channels.filtered(lambda c: c.status == 'completed')
-            first_answerer_user_id = None
-            
-            if completed_child_channels:
-                first_completed_channel = completed_child_channels.sorted('write_date')[0]
-                if first_completed_channel.called_pbx_user and first_completed_channel.called_pbx_user.user:
-                    first_answerer_user_id = first_completed_channel.called_pbx_user.user.id
-                    logger.debug(f"Call {self.id} first answerer: {first_completed_channel.called_pbx_user.user.login}")
-            
-            # Now look at ALL child channels (completed or not) for transfer recipients
-            # Exclude only the first answerer
-            transfer_users = []
-            for channel in child_channels:
-                if channel.called_pbx_user and channel.called_pbx_user.user:
-                    user_id = channel.called_pbx_user.user.id
-                    # Include anyone who is NOT the first answerer
-                    if user_id != first_answerer_user_id and user_id not in transfer_users:
-                        transfer_users.append(user_id)
-                        logger.debug(f"Added transfer recipient: {channel.called_pbx_user.user.login} (status: {channel.status})")
-            
-            if transfer_users:
-                self.transferred_users = [(6, 0, transfer_users)]
-                logger.debug(f"Call {self.id} transferred to users: {[self.env['res.users'].browse(uid).login for uid in transfer_users]}")
-            else:
-                self.transferred_users = [(6, 0, [])]
-        else:
-            # No child channels - clear transferred users
-            self.transferred_users = [(6, 0, [])]
+        # TRANSFERRED USERS: Track via actual transfer initiation (see transfer.py integration)
+        # This field gets populated when transfers are actually initiated, not inferred from channels
+        # No automatic logic here - transfers are tracked when they happen
+
+    def add_transferred_user(self, user):
+        """
+        Add a user to the transferred_users field when a transfer is initiated.
+        Called from transfer.py when transfers actually happen.
+        """
+        self.ensure_one()
+        if user and hasattr(user, 'id'):
+            current_transfer_ids = self.transferred_users.ids
+            if user.id not in current_transfer_ids:
+                self.transferred_users = [(4, user.id)]  # Add user to many2many
+                logger.info(f"Call {self.id}: Added {user.login} to transferred users")
 
     def write(self, vals):
         return super().write(vals)

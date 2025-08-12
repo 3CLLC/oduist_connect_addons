@@ -364,6 +364,16 @@ class CallForwardHandler(models.TransientModel):
             logger.info(f'Extension {extension_number} points to user: {user.name}')
             logger.info(f'User URI: {user.uri}')
             
+            # Track the transfer in the call record if we have a call_id
+            if call_id and user.user:
+                try:
+                    call = self.env['connect.call'].browse(call_id)
+                    if call.exists():
+                        call.add_transferred_user(user.user)
+                        logger.info(f'Added transfer target {user.user.login} to call {call_id}')
+                except Exception as e:
+                    logger.warning(f'Failed to track transfer in call record: {e}')
+            
             # Create different TwiML based on transfer type
             if transfer_type == 'blind':
                 # BLIND TRANSFER: Immediate transfer with smart error handling
