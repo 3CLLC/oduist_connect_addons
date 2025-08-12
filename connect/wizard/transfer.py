@@ -422,8 +422,12 @@ class CallForwardHandler(models.TransientModel):
         
         from twilio.twiml.voice_response import Client
         client_elem = Client()
-        client_elem.identity(user.uri)
+        # Extract just the username part from the URI for Client identity
+        client_identity = user.uri.split('@')[0] if '@' in user.uri else user.uri
+        client_elem.identity(client_identity)
         dial.append(client_elem)
+        
+        logger.info(f'BLIND TRANSFER: Using client identity "{client_identity}" (extracted from URI "{user.uri}")')
         response.append(dial)
         
         logger.info(f'BLIND TRANSFER: Added webhook URL {webhook_url} to capture transfer completion')
