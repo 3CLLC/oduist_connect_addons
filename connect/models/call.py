@@ -53,6 +53,9 @@ class Call(models.Model):
     called_users = fields.Many2many('res.users', readonly=True)
     answered_user = fields.Many2one('res.users', ondelete='set null', string='Answered User', readonly=True)
     answered_user_img = fields.Binary(related='answered_user.image_1920', string='Answered User Avatar')
+    # Transfer tracking fields
+    transferred_users = fields.Many2many('res.users', 'connect_call_transfer_rel', 'call_id', 'user_id', string='Transferred Users', readonly=True)
+    completed_by_user = fields.Many2one('res.users', ondelete='set null', string='Completed By', readonly=True)
     # Scheduled fields.
     scheduled_datetime = fields.Datetime()
     # Voicemail fields
@@ -257,8 +260,10 @@ class Call(models.Model):
 
     def _update_answered_user_from_channels(self):
         """
-        Set the answered user based on the final/last channel that completed.
-        For transfers, this should be the user who ultimately handled the call.
+        Set user fields based on call flow using write_date (actual call timeline):
+        - answered_user: First person to pick up the call (earliest write_date)
+        - transferred_users: Sequential list of transfer recipients (by write_date order)
+        - completed_by_user: Person who actually completed the call (latest write_date)
         """
         self.ensure_one()
         
@@ -268,20 +273,65 @@ class Call(models.Model):
             logger.warning(f"Call {self.id} marked as completed but no completed channels with users found")
             return
         
-        # For transfers, get the channel that was updated most recently (via transfer completion webhook)
-        # This represents the actual transfer recipient who completed the call
-        final_channel = completed_channels.sorted(key='write_date', reverse=True)[0]
-        logger.debug(f"Call {self.id} final completed channel: {final_channel.id} (most recently updated: {final_channel.write_date})")
+        # Sort all completed channels by write_date to determine actual call flow order
+        completed_channels_by_flow = completed_channels.sorted('write_date')
         
-        # Set answered PBX user from the final channel
-        if final_channel.called_pbx_user:
-            self.answered_pbx_user = final_channel.called_pbx_user
-            # Set answered Odoo user if PBX user has associated Odoo user
-            if final_channel.called_pbx_user.user:
-                self.answered_user = final_channel.called_pbx_user.user
-                logger.debug(f"Call {self.id} answered by user: {self.answered_user.login}")
+        # ANSWERED USER: First person to pick up (earliest write_date)
+        first_channel = completed_channels_by_flow[0]
+        if first_channel.called_pbx_user and first_channel.called_pbx_user.user:
+            self.answered_user = first_channel.called_pbx_user.user
+            self.answered_pbx_user = first_channel.called_pbx_user
+            logger.debug(f"Call {self.id} answered by: {self.answered_user.login} (write_date: {first_channel.write_date})")
+        
+        # COMPLETED BY USER: Person who completed the call (latest write_date)
+        if self.status == 'completed':
+            final_channel = completed_channels_by_flow[-1]  # Last in write_date order
+            if final_channel.called_pbx_user and final_channel.called_pbx_user.user:
+                self.completed_by_user = final_channel.called_pbx_user.user
+                logger.debug(f"Call {self.id} completed by: {self.completed_by_user.login} (write_date: {final_channel.write_date})")
         else:
-            logger.warning(f"Final channel {final_channel.id} has no called_pbx_user")
+            # Call not completed - clear completed_by_user
+            self.completed_by_user = False
+        
+        # TRANSFERRED USERS: Include both successful and failed transfer recipients
+        # Look at all child channels that represent transfer attempts (completed or not)
+        child_channels = self.channels.filtered(lambda c: c.parent_channel and c.called_pbx_user)
+        if child_channels:
+            # Sort by write_date to get chronological transfer order
+            child_channels_by_flow = child_channels.sorted('write_date')
+            
+            # Find the first answerer among child channels
+            first_answerer_channel = None
+            for channel in child_channels_by_flow:
+                if channel.status == 'completed' and channel.called_pbx_user and channel.called_pbx_user.user:
+                    first_answerer_channel = channel
+                    break
+            
+            # Transfer recipients are all channels after the first answerer
+            transfer_users = []
+            found_first_answerer = False
+            
+            for channel in child_channels_by_flow:
+                if channel.called_pbx_user and channel.called_pbx_user.user:
+                    if not found_first_answerer:
+                        # Check if this is the first answerer
+                        if channel == first_answerer_channel:
+                            found_first_answerer = True
+                            continue  # Skip the first answerer
+                    else:
+                        # This is a transfer recipient
+                        if channel.called_pbx_user.user.id not in transfer_users:
+                            transfer_users.append(channel.called_pbx_user.user.id)
+                            logger.debug(f"Added transfer recipient: {channel.called_pbx_user.user.login} (status: {channel.status})")
+            
+            if transfer_users:
+                self.transferred_users = [(6, 0, transfer_users)]
+                logger.debug(f"Call {self.id} transferred to users: {[self.env['res.users'].browse(uid).login for uid in transfer_users]}")
+            else:
+                self.transferred_users = [(6, 0, [])]
+        else:
+            # No child channels - clear transferred users
+            self.transferred_users = [(6, 0, [])]
 
     def write(self, vals):
         return super().write(vals)

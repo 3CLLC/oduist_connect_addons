@@ -35,6 +35,8 @@
                 <field name="caller_user" optional="show"/>
                 <field name="called_users" widget="many2many_tags" optional="show"/>
                 <field name="answered_user" optional="show"/>
+                <field name="transferred_users" widget="many2many_tags" optional="show"/>
+                <field name="completed_by_user" optional="show"/>
                 <field name="caller_pbx_user" optional="hide"/>
                 <field name="called_pbx_users" optional="hide" widget="many2many_tags"/>
                 <field name="duration" optional="hide"/>
@@ -97,6 +99,8 @@
                                 </group>
                                 <group>
                                     <field name="called_users" widget="many2many_tags"/>
+                                    <field name="transferred_users" widget="many2many_tags"/>
+                                    <field name="completed_by_user"/>
                                     <field name="summary" widget="html"/>
                                 </group>
                             </group>
