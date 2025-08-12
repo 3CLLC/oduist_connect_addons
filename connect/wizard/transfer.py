@@ -1,5 +1,6 @@
 from odoo import models, fields, api
 from twilio.twiml.voice_response import VoiceResponse, Dial
+from urllib.parse import urljoin
 import logging
 
 logger = logging.getLogger(__name__)
@@ -402,14 +403,22 @@ class CallForwardHandler(models.TransientModel):
 
     def _create_blind_transfer_twiml(self, user):
         """
-        EXISTING LOGIC: Create TwiML for blind (immediate) transfer
-        Extracted from transfer.py - keeping exact same logic
+        Create TwiML for blind (immediate) transfer WITH webhook configuration
+        Fixed to include action URL so transfer completion webhooks are sent
         """
         response = VoiceResponse()
         response.say('Transferring your call now.')
         
-        # Simple dial without action URL to avoid 404 errors
-        dial = Dial(timeout=30)
+        # Get the base URL for webhook callbacks
+        api_url = self.env['connect.settings'].sudo().get_param('api_url')
+        webhook_url = urljoin(api_url, 'twilio/webhook/callstatus')
+        
+        # Dial WITH action URL to capture transfer completion webhooks
+        dial = Dial(
+            timeout=30,
+            action=webhook_url,
+            method='POST'
+        )
         
         from twilio.twiml.voice_response import Client
         client_elem = Client()
@@ -417,6 +426,7 @@ class CallForwardHandler(models.TransientModel):
         dial.append(client_elem)
         response.append(dial)
         
+        logger.info(f'BLIND TRANSFER: Added webhook URL {webhook_url} to capture transfer completion')
         return str(response)
 
     def _create_attended_transfer_twiml(self, user, call_sid):
