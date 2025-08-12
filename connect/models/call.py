@@ -178,9 +178,8 @@ class Call(models.Model):
             logger.info(f"Updating call {self.id} status from '{self.status}' to '{new_status}'")
             self.status = new_status
             
-            # Update answered user for completed calls
-            if new_status == 'completed':
-                self._update_answered_user_from_channels()
+            # Update user fields based on final status
+            self._update_answered_user_from_channels(final_status=new_status)
         else:
             logger.debug(f"Call {self.id} status remains '{self.status}'")
 
@@ -258,12 +257,14 @@ class Call(models.Model):
             logger.info(f"Single human answered: channel {human_channel.id} - regular call completion, returning 'completed'")
             return 'completed'
 
-    def _update_answered_user_from_channels(self):
+    def _update_answered_user_from_channels(self, final_status=None):
         """
         Set user fields based on call flow using write_date (actual call timeline):
         - answered_user: First person to pick up the call (earliest write_date)
         - transferred_users: Sequential list of transfer recipients (by write_date order)
         - completed_by_user: Person who actually completed the call (latest write_date)
+        
+        :param final_status: The final call status to determine completed_by_user
         """
         self.ensure_one()
         
@@ -284,7 +285,10 @@ class Call(models.Model):
             logger.debug(f"Call {self.id} answered by: {self.answered_user.login} (write_date: {first_channel.write_date})")
         
         # COMPLETED BY USER: Person who completed the call (latest write_date)
-        if self.status == 'completed':
+        # Use final_status if provided, otherwise fall back to current status
+        call_status = final_status if final_status is not None else self.status
+        
+        if call_status == 'completed':
             final_channel = completed_channels_by_flow[-1]  # Last in write_date order
             if final_channel.called_pbx_user and final_channel.called_pbx_user.user:
                 self.completed_by_user = final_channel.called_pbx_user.user
@@ -292,6 +296,7 @@ class Call(models.Model):
         else:
             # Call not completed - clear completed_by_user
             self.completed_by_user = False
+            logger.debug(f"Call {self.id} status '{call_status}' - clearing completed_by_user")
         
         # TRANSFERRED USERS: Track via actual transfer initiation (see transfer.py integration)
         # This field gets populated when transfers are actually initiated, not inferred from channels
