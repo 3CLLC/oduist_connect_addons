@@ -411,7 +411,7 @@ class CallForwardHandler(models.TransientModel):
         
         # Get the base URL for webhook callbacks
         api_url = self.env['connect.settings'].sudo().get_param('api_url')
-        webhook_url = urljoin(api_url, 'twilio/webhook/callstatus')
+        webhook_url = urljoin(api_url, 'twilio/webhook/callaction')
         
         # Dial WITH action URL to capture transfer completion webhooks
         dial = Dial(
@@ -422,12 +422,8 @@ class CallForwardHandler(models.TransientModel):
         
         from twilio.twiml.voice_response import Client
         client_elem = Client()
-        # Extract just the username part from the URI for Client identity
-        client_identity = user.uri.split('@')[0] if '@' in user.uri else user.uri
-        client_elem.identity(client_identity)
+        client_elem.identity(user.uri)
         dial.append(client_elem)
-        
-        logger.info(f'BLIND TRANSFER: Using client identity "{client_identity}" (extracted from URI "{user.uri}")')
         response.append(dial)
         
         logger.info(f'BLIND TRANSFER: Added webhook URL {webhook_url} to capture transfer completion')
