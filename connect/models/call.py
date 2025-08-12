@@ -140,7 +140,13 @@ class Call(models.Model):
 
     def _update_call_status_from_channels(self):
         """
-        DEBUG VERSION: Enhanced logging to understand channel patterns.
+        Update call status based on real channel pattern analysis.
+        
+        Key insights from debug data:
+        1. Root channel = incoming call, always goes to voicemail (completed but no called_pbx_user)
+        2. Child channels = actual user interactions (parallel rings + transfers)
+        3. Human interaction only happens in child channels with called_pbx_user
+        4. Sequential child creation suggests transfers, parallel creation suggests ring group
         """
         self.ensure_one()
         
@@ -148,123 +154,91 @@ class Call(models.Model):
             logger.warning(f"Call {self.id} has no channels to determine status from")
             return
         
-        # COMPREHENSIVE DEBUG LOGGING
-        logger.info(f"=== CALL {self.id} CHANNEL ANALYSIS DEBUG ===")
-        logger.info(f"Call Direction: {self.direction}")
-        logger.info(f"Current Call Status: {self.status}")
-        logger.info(f"Total Channels: {len(self.channels)}")
-        
-        # Analyze each channel in detail
-        channels_sorted = self.channels.sorted(key='id')
-        for i, channel in enumerate(channels_sorted):
-            logger.info(f"  Channel {i+1}: ID={channel.id}")
-            logger.info(f"    SID: {channel.sid}")
-            logger.info(f"    Status: {channel.status}")
-            logger.info(f"    Duration: {channel.duration}")
-            logger.info(f"    Technical Direction: {channel.technical_direction}")
-            logger.info(f"    Caller: {channel.caller}")
-            logger.info(f"    Called: {channel.called}")
-            logger.info(f"    Caller PBX User: {channel.caller_pbx_user.name if channel.caller_pbx_user else 'None'}")
-            logger.info(f"    Called PBX User: {channel.called_pbx_user.name if channel.called_pbx_user else 'None'}")
-            logger.info(f"    Caller Odoo User: {channel.caller_user.name if channel.caller_user else 'None'}")
-            logger.info(f"    Called Odoo User: {channel.called_user.name if channel.called_user else 'None'}")
-            logger.info(f"    Parent Channel: {channel.parent_channel.id if channel.parent_channel else 'None'}")
-            logger.info(f"    Create Date: {channel.create_date}")
-            logger.info(f"    Partner: {channel.partner.name if channel.partner else 'None'}")
-            
-            # Time gap analysis
-            if i > 0:
-                prev_channel = channels_sorted[i-1]
-                time_diff = (channel.create_date - prev_channel.create_date).total_seconds()
-                logger.info(f"    Time since previous channel: {time_diff:.2f} seconds")
-            
-            logger.info(f"    ---")
-        
-        # Analyze parent-child relationships
+        # Separate channels by type
         root_channels = self.channels.filtered(lambda c: not c.parent_channel)
         child_channels = self.channels.filtered(lambda c: c.parent_channel)
         
-        logger.info(f"Root Channels: {len(root_channels)} (IDs: {root_channels.mapped('id')})")
-        logger.info(f"Child Channels: {len(child_channels)} (IDs: {child_channels.mapped('id')})")
+        logger.debug(f"Call {self.id}: {len(root_channels)} root, {len(child_channels)} child channels")
         
-        if child_channels:
-            logger.info(f"Child Channel Parent Mapping:")
-            for child in child_channels:
-                logger.info(f"  Child {child.id} -> Parent {child.parent_channel.id}")
+        if not child_channels:
+            # No child channels = no user interaction attempted, use root status
+            # This would be very unusual based on our debug data
+            new_status = root_channels[0].status if root_channels else 'no-answer'
+            logger.debug(f"Call {self.id} no child channels - using root status: {new_status}")
+        else:
+            # Analyze child channels to determine actual call outcome
+            new_status = self._analyze_child_channel_interactions(child_channels)
+            logger.debug(f"Call {self.id} determined from child channels: {new_status}")
         
-        # Analyze human interaction
-        human_answered_channels = self.channels.filtered(
+        # Only update if status actually changed
+        if self.status != new_status:
+            logger.info(f"Updating call {self.id} status from '{self.status}' to '{new_status}'")
+            self.status = new_status
+            
+            # Update answered user for completed calls
+            if new_status == 'completed':
+                self._update_answered_user_from_channels()
+        else:
+            logger.debug(f"Call {self.id} status remains '{self.status}'")
+
+    def _analyze_child_channel_interactions(self, child_channels):
+        """
+        Analyze child channels to determine the true call outcome.
+        Child channels represent the actual user interactions.
+        """
+        # Find channels where humans actually answered
+        human_answered = child_channels.filtered(
             lambda c: c.status == 'completed' and c.called_pbx_user
         )
-        voicemail_channels = self.channels.filtered(
-            lambda c: c.status == 'completed' and not c.called_pbx_user
+        
+        if not human_answered:
+            # No human answered any child channel
+            # Check if anyone was even attempted to be reached
+            channel_statuses = child_channels.mapped('status')
+            
+            if 'failed' in channel_statuses:
+                return 'failed'
+            elif 'busy' in channel_statuses:
+                return 'busy'
+            else:
+                # All were no-answer or other non-completion status
+                return 'no-answer'
+        
+        # At least one human answered - now determine if this was the final outcome
+        
+        # Check for transfer pattern: multiple human interactions suggesting A->B transfer
+        if len(human_answered) > 1:
+            # Multiple humans were involved - this suggests transfers
+            # The final outcome is determined by the last human interaction
+            final_human_channel = human_answered.sorted(key='id', reverse=True)[0]
+            logger.debug(f"Call multiple human interactions - final: channel {final_human_channel.id}")
+            return 'completed'
+        
+        # Single human answered - check if there were subsequent transfer attempts
+        human_channel = human_answered[0]
+        
+        # Find any channels created AFTER the human answered (potential transfers)
+        subsequent_channels = child_channels.filtered(
+            lambda c: c.id > human_channel.id
         )
         
-        logger.info(f"Human Answered Channels: {len(human_answered_channels)} (IDs: {human_answered_channels.mapped('id')})")
-        logger.info(f"Voicemail/Automated Channels: {len(voicemail_channels)} (IDs: {voicemail_channels.mapped('id')})")
-        
-        # Analyze status distribution
-        status_counts = {}
-        for channel in self.channels:
-            status = channel.status
-            if status in status_counts:
-                status_counts[status] += 1
-            else:
-                status_counts[status] = 1
-        
-        logger.info(f"Channel Status Distribution: {status_counts}")
-        
-        # Time-based analysis
-        if len(channels_sorted) > 1:
-            first_channel_time = channels_sorted[0].create_date
-            last_channel_time = channels_sorted[-1].create_date
-            total_span = (last_channel_time - first_channel_time).total_seconds()
-            logger.info(f"Channel Creation Span: {total_span:.2f} seconds")
-            
-            # Look for timing patterns that might indicate transfers vs parallel rings
-            time_gaps = []
-            for i in range(1, len(channels_sorted)):
-                gap = (channels_sorted[i].create_date - channels_sorted[i-1].create_date).total_seconds()
-                time_gaps.append(gap)
-            
-            logger.info(f"Time Gaps Between Channels: {[f'{gap:.2f}s' for gap in time_gaps]}")
-            
-            # Detect potential transfer pattern (large gaps between channel creation)
-            large_gaps = [gap for gap in time_gaps if gap > 5.0]  # 5+ second gaps
-            if large_gaps:
-                logger.info(f"POTENTIAL TRANSFER DETECTED: Large time gaps found: {[f'{gap:.2f}s' for gap in large_gaps]}")
-            else:
-                logger.info(f"LIKELY PARALLEL RINGING: All channels created within 5 seconds")
-        
-        # Current status determination logic (temporary - for comparison)
-        current_logic_status = self._current_status_logic()
-        logger.info(f"Current Logic Would Set Status To: {current_logic_status}")
-        
-        logger.info(f"=== END CALL {self.id} DEBUG ===")
-        
-        # For now, don't change the status - just log
-        # We'll implement the real logic after analyzing the patterns
-        
-    def _current_status_logic(self):
-        """
-        The current status logic for comparison
-        """
-        if not self.channels:
-            return 'no-answer'
-        
-        channel_statuses = self.channels.mapped('status')
-        
-        if 'completed' in channel_statuses:
+        if not subsequent_channels:
+            # No transfers after human answered - straightforward completion
             return 'completed'
-        elif 'failed' in channel_statuses:
-            return 'failed'
-        elif 'busy' in channel_statuses:
-            return 'busy'
-        elif 'no-answer' in channel_statuses:
-            return 'no-answer'
-        elif 'canceled' in channel_statuses:
-            return 'canceled'
+        
+        # There were subsequent channels (transfers) - check their outcome
+        subsequent_human_answered = subsequent_channels.filtered(
+            lambda c: c.status == 'completed' and c.called_pbx_user
+        )
+        
+        if subsequent_human_answered:
+            # Transfer was successful (someone else answered)
+            return 'completed'
         else:
+            # Transfer was unsuccessful (all subsequent channels failed/no-answer)
+            # Based on business requirements, this should be 'no-answer'
+            logger.info(f"Call {self.id} transfer unsuccessful - initial answer by channel {human_channel.id} "
+                    f"but {len(subsequent_channels)} subsequent channels failed")
             return 'no-answer'
 
     def _update_answered_user_from_channels(self):
