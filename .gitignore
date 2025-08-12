@@ -19,3 +19,7 @@ venv.bak/
 .DS_Store
 ._.DS_Store
 .*.swp
+
+# Claude instructions
+CLAUDE.md
+.claude/

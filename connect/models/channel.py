@@ -107,6 +107,9 @@ class Channel(models.Model):
                     data['parent_sid'] = parent_channel.parent_channel.sid
             channel.write(data)
             debug(self, 'Channel %s updated.' % channel.id)
+            # Log transfer scenario details when status becomes completed
+            if params['CallStatus'] == 'completed' and channel.called_pbx_user:
+                channel._log_transfer_scenario_details()
         # Channel not found by sid, create it.
         else:
             data = {
@@ -159,6 +162,9 @@ class Channel(models.Model):
                 debug(self, 'Not setting channel partner without channel users.')
             channel = self.with_context(tracking_disable=True).create(data)
             debug(self, 'Channel %s created.' % channel.id)
+            # Log transfer scenario details when status becomes completed
+            if params['CallStatus'] == 'completed' and channel.called_pbx_user:
+                channel._log_transfer_scenario_details()
         return channel
 
     def transfer(self, to=None):
@@ -221,3 +227,41 @@ class Channel(models.Model):
                 })
 
         return True
+
+    def _log_transfer_scenario_details(self):
+        """
+        Enhanced logging specifically for transfer scenario analysis.
+        This will help us understand if channels get reused vs created new.
+        """
+        if not self.call:
+            return
+
+        # Log detailed channel information for transfer analysis
+        logger.info(f"=== TRANSFER SCENARIO ANALYSIS - Call {self.call.id} ===")
+        logger.info(f"Current Channel Details:")
+        logger.info(f"  Channel ID: {self.id}")
+        logger.info(f"  Channel SID: {self.sid}")
+        logger.info(f"  Status: {self.status}")
+        logger.info(f"  Called PBX User: {self.called_pbx_user.name if self.called_pbx_user else 'None'}")
+        logger.info(f"  Caller PBX User: {self.caller_pbx_user.name if self.caller_pbx_user else 'None'}")
+        logger.info(f"  Created: {self.create_date}")
+        logger.info(f"  Write Date: {self.write_date}")
+
+        # Log all channels for this call
+        all_channels = self.call.channels.sorted('id')
+        logger.info(f"All Channels for Call {self.call.id}:")
+        for i, ch in enumerate(all_channels):
+            logger.info(f"  [{i+1}] ID:{ch.id} SID:{ch.sid} Status:{ch.status} "
+                        f"Called:{ch.called_pbx_user.name if ch.called_pbx_user else 'None'} "
+                        f"Created:{ch.create_date}")
+
+        # Check for potential channel reuse pattern
+        same_user_channels = all_channels.filtered(
+            lambda c: c.called_pbx_user == self.called_pbx_user and c.called_pbx_user
+        )
+        if len(same_user_channels) > 1:
+            logger.info(f"POTENTIAL REUSE DETECTED: {len(same_user_channels)} channels for user {self.called_pbx_user.name}")
+            for ch in same_user_channels:
+                logger.info(f"  Channel {ch.id}: SID:{ch.sid} Status:{ch.status} Created:{ch.create_date}")
+
+        logger.info(f"=== END TRANSFER SCENARIO ANALYSIS ===")
