@@ -228,12 +228,32 @@ class Call(models.Model):
             logger.info(f"Multiple human interactions - final: channel {final_human_channel.id} (most recently updated), returning 'completed'")
             return 'completed'
         
-        # Single human answered - this is a regular call completion (ring group scenario)
-        # In transfers, we now update existing channels to 'completed', so we'd have multiple completed channels
-        # If only one channel is completed, it means no successful transfer occurred
+        # Single human answered - check if this was a failed transfer or regular call completion
         human_channel = human_answered[0]
-        logger.info(f"Single human answered: channel {human_channel.id} - regular call completion, returning 'completed'")
-        return 'completed'
+        
+        # Look for channels that were recently updated (indicating transfer processing)
+        # Sort all child channels by write_date to find the most recently updated
+        recently_updated_channels = child_channels.sorted(key='write_date', reverse=True)
+        most_recent_channel = recently_updated_channels[0] if recently_updated_channels else None
+        
+        if most_recent_channel and most_recent_channel != human_channel:
+            # A different channel was updated more recently than the completed one
+            # This suggests a transfer was attempted
+            logger.info(f"Channel {most_recent_channel.id} was updated more recently than completed channel {human_channel.id}")
+            logger.info(f"Most recent channel status: {most_recent_channel.status}, user: {most_recent_channel.called_pbx_user.name if most_recent_channel.called_pbx_user else 'None'}")
+            
+            if most_recent_channel.status in ['no-answer', 'busy', 'failed']:
+                # Transfer was attempted but failed
+                logger.info(f"Failed transfer detected - returning 'no-answer'")
+                return 'no-answer'
+            else:
+                # This shouldn't happen - if transfer succeeded, we'd have 2 completed channels
+                logger.warning(f"Unexpected: most recent channel status {most_recent_channel.status} - treating as completed")
+                return 'completed'
+        else:
+            # No recent updates or the completed channel is the most recent - regular call completion
+            logger.info(f"Single human answered: channel {human_channel.id} - regular call completion, returning 'completed'")
+            return 'completed'
 
     def _update_answered_user_from_channels(self):
         """
