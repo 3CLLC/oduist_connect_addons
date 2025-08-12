@@ -408,6 +408,34 @@ class Call(models.Model):
     @api.model
     def on_call_action(self, params):
         debug(self, 'On call action: %s' % params)
+        
+        # Check if this is a Dial action webhook with transfer completion data
+        if 'DialCallSid' in params and 'DialCallStatus' in params:
+            logger.info(f"Processing Dial action webhook for transfer completion")
+            logger.info(f"DialCallSid: {params.get('DialCallSid')}, DialCallStatus: {params.get('DialCallStatus')}")
+            
+            # Convert Dial action parameters to call status format and process
+            converted_params = {
+                'CallSid': params.get('DialCallSid'),
+                'CallStatus': params.get('DialCallStatus'),
+                'CallDuration': params.get('DialCallDuration', 0),
+                'Direction': params.get('Direction', 'outbound-dial'),
+                'From': params.get('From'),
+                'To': params.get('To'),
+                'Called': params.get('Called'),
+                'Caller': params.get('Caller'),
+                'ParentCallSid': params.get('ParentCallSid'),
+            }
+            
+            logger.info(f"Converted Dial action to call status format: {converted_params}")
+            
+            # Process this as a regular call status webhook to update Jason's channel
+            try:
+                self.on_call_status(converted_params)
+                logger.info(f"Successfully processed Dial action as call status update")
+            except Exception as e:
+                logger.error(f"Failed to process Dial action as call status: {e}")
+        
         return '<Response><Hangup/></Response>'
 
     def register_call(self, channel, params):
