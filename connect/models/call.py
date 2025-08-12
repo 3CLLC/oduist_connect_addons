@@ -414,29 +414,106 @@ class Call(models.Model):
             logger.info(f"Processing Dial action webhook for transfer completion")
             logger.info(f"DialCallSid: {params.get('DialCallSid')}, DialCallStatus: {params.get('DialCallStatus')}")
             
-            # Convert Dial action parameters to call status format and process
-            converted_params = {
-                'CallSid': params.get('DialCallSid'),
-                'CallStatus': params.get('DialCallStatus'),
-                'CallDuration': params.get('DialCallDuration', 0),
-                'Direction': params.get('Direction', 'outbound-dial'),
-                'From': params.get('From'),
-                'To': params.get('To'),
-                'Called': params.get('Called'),
-                'Caller': params.get('Caller'),
-                'ParentCallSid': params.get('ParentCallSid'),
-            }
-            
-            logger.info(f"Converted Dial action to call status format: {converted_params}")
-            
-            # Process this as a regular call status webhook to update Jason's channel
+            # For blind transfers, we need to update the existing transfer recipient channel
+            # instead of creating a new channel with the DialCallSid
             try:
-                self.on_call_status(converted_params)
-                logger.info(f"Successfully processed Dial action as call status update")
+                self._process_transfer_completion(params)
+                logger.info(f"Successfully processed transfer completion")
             except Exception as e:
-                logger.error(f"Failed to process Dial action as call status: {e}")
+                logger.error(f"Failed to process transfer completion: {e}")
         
         return '<Response><Hangup/></Response>'
+
+    def _process_transfer_completion(self, params):
+        """
+        Process Dial action webhook to update existing transfer recipient channel
+        instead of creating new channels that break call status logic.
+        
+        Key insight: DialCallSid represents the transfer recipient's call,
+        but we need to update the existing channel for that user rather than create new ones.
+        """
+        dial_call_sid = params.get('DialCallSid')
+        dial_status = params.get('DialCallStatus') 
+        original_call_sid = params.get('CallSid')  # The original call that initiated transfer
+        
+        logger.info(f"=== PROCESSING TRANSFER COMPLETION ===")
+        logger.info(f"Original CallSid: {original_call_sid}")
+        logger.info(f"DialCallSid: {dial_call_sid}")  
+        logger.info(f"DialCallStatus: {dial_status}")
+        
+        # Find the original call/channel that initiated the transfer
+        original_channel = self.env['connect.channel'].search([('sid', '=', original_call_sid)], limit=1)
+        if not original_channel or not original_channel.call:
+            logger.warning(f"Could not find original channel for transfer CallSid: {original_call_sid}")
+            return
+            
+        call = original_channel.call
+        logger.info(f"Found call {call.id} for transfer processing")
+        
+        # Look for transfer recipient based on DialCallSid - this could be in 'Called' field
+        dial_recipient = params.get('Called')  # Who was dialed in the transfer
+        logger.info(f"Transfer recipient (Called): {dial_recipient}")
+        
+        if dial_recipient:
+            # Find the PBX user for this recipient
+            recipient_pbx_user = self.env['connect.user'].get_user_by_uri(dial_recipient)
+            logger.info(f"Recipient PBX User: {recipient_pbx_user.name if recipient_pbx_user else 'None'}")
+            
+            if recipient_pbx_user:
+                # Look for existing channel for this recipient in this call
+                existing_recipient_channels = call.channels.filtered(
+                    lambda c: c.called_pbx_user == recipient_pbx_user
+                )
+                logger.info(f"Found {len(existing_recipient_channels)} existing channels for recipient")
+                
+                if existing_recipient_channels:
+                    # Update the most recent channel for this recipient  
+                    recipient_channel = existing_recipient_channels.sorted('id', reverse=True)[0]
+                    logger.info(f"Updating existing recipient channel {recipient_channel.id}")
+                    
+                    # Map DialCallStatus to proper channel status
+                    if dial_status == 'completed':
+                        new_status = 'completed'
+                        # Also set duration from Dial webhook if available
+                        duration = int(params.get('DialCallDuration', 0))
+                    elif dial_status == 'busy':
+                        new_status = 'busy'
+                        duration = 0
+                    elif dial_status == 'no-answer':
+                        new_status = 'no-answer'  
+                        duration = 0
+                    elif dial_status == 'failed':
+                        new_status = 'failed'
+                        duration = 0
+                    else:
+                        new_status = dial_status  # Pass through unknown statuses
+                        duration = int(params.get('DialCallDuration', 0))
+                    
+                    logger.info(f"Updating channel {recipient_channel.id} status to '{new_status}' with duration {duration}")
+                    
+                    # Update the existing channel with transfer completion data
+                    recipient_channel.write({
+                        'status': new_status,
+                        'duration': duration,
+                    })
+                    
+                    # Force call status update based on all channels
+                    call._update_call_status_from_channels()
+                    logger.info(f"Updated call {call.id} status to: {call.status}")
+                    
+                else:
+                    logger.warning(f"No existing recipient channel found for user {recipient_pbx_user.name} in call {call.id}")
+                    
+            else:
+                logger.warning(f"Could not find PBX user for dial recipient: {dial_recipient}")
+        else:
+            logger.warning(f"No Called field in Dial action webhook - cannot identify transfer recipient")
+            
+        logger.info(f"=== TRANSFER COMPLETION PROCESSING COMPLETE ===")
+        
+        # Update answered user fields now that we've processed the transfer
+        if call.status == 'completed':
+            call._update_answered_user_from_channels()
 
     def register_call(self, channel, params):
         try:
