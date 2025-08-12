@@ -228,39 +228,12 @@ class Call(models.Model):
             logger.info(f"Multiple human interactions - final: channel {final_human_channel.id} (most recently updated), returning 'completed'")
             return 'completed'
         
-        # Single human answered - check if there were subsequent transfer attempts
+        # Single human answered - this is a regular call completion (ring group scenario)
+        # In transfers, we now update existing channels to 'completed', so we'd have multiple completed channels
+        # If only one channel is completed, it means no successful transfer occurred
         human_channel = human_answered[0]
-        logger.info(f"Single human answered: channel {human_channel.id}")
-        
-        # Find any channels created AFTER the human answered (potential transfers)
-        subsequent_channels = child_channels.filtered(
-            lambda c: c.id > human_channel.id
-        )
-        
-        logger.info(f"Subsequent channels after human answer: {len(subsequent_channels)} (IDs: {subsequent_channels.mapped('id')})")
-        
-        if not subsequent_channels:
-            # No transfers after human answered - straightforward completion
-            logger.info("No subsequent channels - straightforward completion, returning 'completed'")
-            return 'completed'
-        
-        # There were subsequent channels (transfers) - check their outcome
-        subsequent_human_answered = subsequent_channels.filtered(
-            lambda c: c.status == 'completed' and c.called_pbx_user
-        )
-        
-        logger.info(f"Subsequent human answered channels: {len(subsequent_human_answered)}")
-        
-        if subsequent_human_answered:
-            # Transfer was successful (someone else answered)
-            logger.info("Transfer was successful, returning 'completed'")
-            return 'completed'
-        else:
-            # Transfer was unsuccessful (all subsequent channels failed/no-answer)
-            # Based on business requirements, this should be 'no-answer'
-            logger.info(f"Transfer unsuccessful - initial answer by channel {human_channel.id} "
-                    f"but {len(subsequent_channels)} subsequent channels failed, returning 'no-answer'")
-            return 'no-answer'
+        logger.info(f"Single human answered: channel {human_channel.id} - regular call completion, returning 'completed'")
+        return 'completed'
 
     def _update_answered_user_from_channels(self):
         """
