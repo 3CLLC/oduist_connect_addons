@@ -222,9 +222,10 @@ class Call(models.Model):
         # Check for transfer pattern: multiple human interactions suggesting A->B transfer
         if len(human_answered) > 1:
             # Multiple humans were involved - this suggests transfers
-            # The final outcome is determined by the last human interaction
-            final_human_channel = human_answered.sorted(key='id', reverse=True)[0]
-            logger.info(f"Multiple human interactions - final: channel {final_human_channel.id}, returning 'completed'")
+            # For transfers, find the channel that was updated most recently (via transfer completion webhook)
+            # This indicates the actual transfer recipient who completed the call
+            final_human_channel = human_answered.sorted(key='write_date', reverse=True)[0]
+            logger.info(f"Multiple human interactions - final: channel {final_human_channel.id} (most recently updated), returning 'completed'")
             return 'completed'
         
         # Single human answered - check if there were subsequent transfer attempts
@@ -268,15 +269,16 @@ class Call(models.Model):
         """
         self.ensure_one()
         
-        # Find the last completed channel (by ID, which represents chronological order)
-        completed_channels = self.channels.filtered(lambda c: c.status == 'completed')
+        # Find completed channels with actual users (not root channels)
+        completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user)
         if not completed_channels:
-            logger.warning(f"Call {self.id} marked as completed but no completed channels found")
+            logger.warning(f"Call {self.id} marked as completed but no completed channels with users found")
             return
         
-        # Get the last (newest) completed channel
-        final_channel = completed_channels.sorted(key='id', reverse=True)[0]
-        logger.debug(f"Call {self.id} final completed channel: {final_channel.id}")
+        # For transfers, get the channel that was updated most recently (via transfer completion webhook)
+        # This represents the actual transfer recipient who completed the call
+        final_channel = completed_channels.sorted(key='write_date', reverse=True)[0]
+        logger.debug(f"Call {self.id} final completed channel: {final_channel.id} (most recently updated: {final_channel.write_date})")
         
         # Set answered PBX user from the final channel
         if final_channel.called_pbx_user:
