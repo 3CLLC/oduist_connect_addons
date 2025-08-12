@@ -45,9 +45,9 @@ class CallForwardHandler(models.TransientModel):
             target_number = self._resolve_phone_number(phone_number)
             
             if transfer_type == 'blind':
-                success = self._execute_blind_transfer(client, session_id, target_number)
+                success = self._execute_blind_transfer(client, session_id, target_number, call_id)
             elif transfer_type == 'attended':
-                success = self._execute_attended_transfer(client, session_id, target_number)
+                success = self._execute_attended_transfer(client, session_id, target_number, call_id)
             else:
                 return {
                     'success': False,
@@ -219,7 +219,7 @@ class CallForwardHandler(models.TransientModel):
             logger.info(f'External number resolved to: {phone_number}')
             return phone_number
 
-    def _execute_blind_transfer(self, client, session_id, target_number):
+    def _execute_blind_transfer(self, client, session_id, target_number, call_id=None):
         """
         Execute immediate blind transfer using extension render method (like ElevenLabs)
         """
@@ -231,7 +231,7 @@ class CallForwardHandler(models.TransientModel):
                 # We need to find which extension this client identity maps to
                 extension_number = self._find_extension_by_client_identity(target_number)
                 if extension_number:
-                    return self._execute_extension_transfer(client, session_id, extension_number, 'blind')
+                    return self._execute_extension_transfer(client, session_id, extension_number, 'blind', call_id)
                 else:
                     logger.error(f'Could not find extension for client identity: {target_number}')
                     return False
@@ -253,7 +253,7 @@ class CallForwardHandler(models.TransientModel):
             logger.error(f'Blind transfer failed: {e}', exc_info=True)
             return False
 
-    def _execute_attended_transfer(self, client, session_id, target_number):
+    def _execute_attended_transfer(self, client, session_id, target_number, call_id=None):
         """
         Execute attended transfer using extension render method
         """
@@ -264,7 +264,7 @@ class CallForwardHandler(models.TransientModel):
                 # Extract extension number from client identity
                 extension_number = self._find_extension_by_client_identity(target_number)
                 if extension_number:
-                    return self._execute_extension_transfer(client, session_id, extension_number, 'attended')
+                    return self._execute_extension_transfer(client, session_id, extension_number, 'attended', call_id)
                 else:
                     logger.error(f'Could not find extension for attended transfer: {target_number}')
                     return False
@@ -321,7 +321,7 @@ class CallForwardHandler(models.TransientModel):
             logger.error(f'Error finding extension by client identity: {e}')
             return None
 
-    def _execute_extension_transfer(self, client, session_id, extension_number, transfer_type):
+    def _execute_extension_transfer(self, client, session_id, extension_number, transfer_type, call_id=None):
         """
         Execute transfer with different behavior for blind vs attended transfers
         """
