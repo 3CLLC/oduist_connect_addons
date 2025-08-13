@@ -194,8 +194,13 @@ class Channel(models.Model):
                 parent_channel_obj = self.browse(data['parent_channel'])
                 if parent_channel_obj.call and parent_channel_obj.call.call_pattern:
                     if parent_channel_obj.call.call_pattern == 'ring_group':
-                        data['call_source'] = 'ring_group'
-                        logger.info(f"NEW CHANNEL: Tagged as 'ring_group' based on call pattern")
+                        # Check if this is actually a transfer in a ring group call
+                        if parent_channel_obj.call.transferred_users:
+                            data['call_source'] = 'transfer'
+                            logger.info(f"NEW CHANNEL: Tagged as 'transfer' (ring group call with {len(parent_channel_obj.call.transferred_users)} transferred users)")
+                        else:
+                            data['call_source'] = 'ring_group'
+                            logger.info(f"NEW CHANNEL: Tagged as 'ring_group' based on call pattern")
                     elif parent_channel_obj.call.call_pattern == 'direct_call':
                         # For direct calls, child channels are either initial direct calls, transfers, or external dials
                         if parent_channel_obj.call.transferred_users:

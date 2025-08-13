@@ -304,9 +304,9 @@ class Call(models.Model):
                     self.completed_by_user = final_channel.called_pbx_user.user
                     logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
                 else:
-                    # Transfer failed, original answerer completed
-                    self.completed_by_user = self.answered_user
-                    logger.info(f"Call {self.id}: completed_by_user set to original answerer {self.completed_by_user.login} (transfer failed)")
+                    # Transfer failed, nobody completed the call
+                    self.completed_by_user = False
+                    logger.info(f"Call {self.id}: completed_by_user left empty (transfer failed - nobody completed)")
             else:
                 # No transfer - original answerer completed
                 self.completed_by_user = self.answered_user
@@ -359,9 +359,9 @@ class Call(models.Model):
                 self.completed_by_user = final_channel.called_pbx_user.user
                 logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
             else:
-                # Transfer failed, original answerer completed
-                self.completed_by_user = self.answered_user
-                logger.info(f"Call {self.id}: completed_by_user set to original answerer {self.completed_by_user.login} (transfer failed)")
+                # Transfer failed, nobody completed the call
+                self.completed_by_user = False
+                logger.info(f"Call {self.id}: completed_by_user left empty (transfer failed - nobody completed)")
         else:
             # No transfer - answered user also completed
             self.completed_by_user = self.answered_user
@@ -591,17 +591,50 @@ class Call(models.Model):
         else:
             logger.info(f"STRATEGY 1 FAILED: No channel found with SID {dial_call_sid}")
             
-            # STRATEGY 2: Find the most recent channel that's NOT the transfer initiator
-            # Based on the logs, Jason's channel should be the most recent one created
-            child_channels = call.channels.filtered(lambda c: c.parent_channel)
-            if child_channels:
-                # Sort by ID (creation order) and look for the most recent one that's not completed
-                potential_recipients = child_channels.filtered(lambda c: c.status in ['no-answer', 'ringing', 'in-progress'])
-                if potential_recipients:
-                    recipient_channel = potential_recipients.sorted('id', reverse=True)[0]
-                    logger.info(f"STRATEGY 2: Using most recent non-completed channel {recipient_channel.id} as recipient")
+            # STRATEGY 1B: Create the missing transfer channel since Twilio didn't send us a webhook for it
+            # This happens when transfers create new calls that we don't get webhook notifications for
+            logger.info(f"STRATEGY 1B: Creating missing transfer channel for SID {dial_call_sid}")
+            parent_channel = call.channels.filtered(lambda c: not c.parent_channel)[0]  # Parent channel
+            
+            # Find transfer target user from transferred_users
+            if call.transferred_users:
+                transfer_target_user = call.transferred_users[-1]  # Most recent transfer
+                # Find the PBX user for this Odoo user
+                pbx_user = self.env['connect.user'].search([('user', '=', transfer_target_user.id)], limit=1)
+                
+                if pbx_user:
+                    # Create the missing transfer channel
+                    channel_data = {
+                        'sid': dial_call_sid,
+                        'call': call.id,
+                        'parent_channel': parent_channel.id,
+                        'technical_direction': 'outbound-dial',
+                        'status': dial_status,
+                        'duration': int(params.get('DialCallDuration', 0)),
+                        'called_pbx_user': pbx_user.id,
+                        'called_user': transfer_target_user.id,
+                        'call_source': 'transfer',  # Explicitly tag as transfer
+                        'caller': original_channel.caller,
+                        'called': pbx_user.uri
+                    }
+                    
+                    recipient_channel = self.env['connect.channel'].create(channel_data)
+                    logger.info(f"STRATEGY 1B SUCCESS: Created transfer channel {recipient_channel.id} for {transfer_target_user.login}")
                 else:
-                    logger.warning(f"STRATEGY 2 FAILED: No suitable recipient channels found")
+                    logger.warning(f"STRATEGY 1B FAILED: Could not find PBX user for {transfer_target_user.login}")
+            
+            if not recipient_channel:
+                # STRATEGY 2: Find the most recent channel that's NOT the transfer initiator
+                # Based on the logs, Jason's channel should be the most recent one created
+                child_channels = call.channels.filtered(lambda c: c.parent_channel)
+                if child_channels:
+                    # Sort by ID (creation order) and look for the most recent one that's not completed
+                    potential_recipients = child_channels.filtered(lambda c: c.status in ['no-answer', 'ringing', 'in-progress'])
+                    if potential_recipients:
+                        recipient_channel = potential_recipients.sorted('id', reverse=True)[0]
+                        logger.info(f"STRATEGY 2: Using most recent non-completed channel {recipient_channel.id} as recipient")
+                    else:
+                        logger.warning(f"STRATEGY 2 FAILED: No suitable recipient channels found")
                     return
             else:
                 logger.warning(f"STRATEGY 2 FAILED: No child channels found")
