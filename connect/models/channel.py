@@ -39,6 +39,13 @@ class Channel(models.Model):
     # Parsed numbers (domain stripped).
     caller_number = fields.Char(compute='_get_channel_numbers', store=True, index=True)
     called_number = fields.Char(compute='_get_channel_numbers', store=True, index=True)
+    # Call source tracking for pattern detection
+    call_source = fields.Selection([
+        ('direct_call', 'Direct Call'),
+        ('ring_group', 'Ring Group'),
+        ('transfer', 'Transfer'),
+        ('external_dial', 'External Dial')
+    ], string='Call Source', help='How this channel was created', tracking=True)
 
     @api.depends('caller', 'called')
     def _get_channel_numbers(self):
@@ -180,6 +187,35 @@ class Channel(models.Model):
                 data['partner'] = self.env['res.partner'].get_partner_by_number(params['Caller']).id
             else:
                 debug(self, 'Not setting channel partner without channel users.')
+            
+            # EXPLICIT CHANNEL TAGGING: Set call_source based on call context
+            if data.get('parent_channel'):
+                # This is a child channel, determine source from parent call pattern
+                parent_channel_obj = self.browse(data['parent_channel'])
+                if parent_channel_obj.call and parent_channel_obj.call.call_pattern:
+                    if parent_channel_obj.call.call_pattern == 'ring_group':
+                        data['call_source'] = 'ring_group'
+                        logger.info(f"NEW CHANNEL: Tagged as 'ring_group' based on call pattern")
+                    elif parent_channel_obj.call.call_pattern == 'direct_call':
+                        # For direct calls, child channels are either initial direct calls, transfers, or external dials
+                        if parent_channel_obj.call.transferred_users:
+                            # Call has transfers - new child channels are likely transfers
+                            data['call_source'] = 'transfer'
+                            logger.info(f"NEW CHANNEL: Tagged as 'transfer' (call has {len(parent_channel_obj.call.transferred_users)} transferred users)")
+                        elif (params.get('Called', '').startswith('client:') or 
+                              params.get('Called', '').startswith('sip:')):
+                            data['call_source'] = 'direct_call'  # Initial direct call
+                            logger.info(f"NEW CHANNEL: Tagged as 'direct_call' based on call pattern")
+                        else:
+                            data['call_source'] = 'external_dial'  # External number
+                            logger.info(f"NEW CHANNEL: Tagged as 'external_dial' for external number")
+                else:
+                    logger.info(f"NEW CHANNEL: No call pattern set yet, will be tagged later")
+            else:
+                # This is a parent channel (inbound call)
+                data['call_source'] = None  # Will be set when pattern is determined
+                logger.info(f"NEW CHANNEL: Parent channel, no source tagging needed")
+            
             channel = self.with_context(tracking_disable=True).create(data)
             debug(self, 'Channel %s created.' % channel.id)
         return channel

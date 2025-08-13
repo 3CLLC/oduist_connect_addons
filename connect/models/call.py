@@ -148,8 +148,8 @@ class Call(models.Model):
 
     def _detect_call_pattern(self):
         """
-        Detect call pattern early in call setup to determine how to handle user field population.
-        This runs when we have enough information to determine the pattern, not at the very end.
+        Detect the call pattern from explicit channel tagging.
+        This replaces the old timing-based inference with explicit source tracking.
         
         Returns:
             'ring_group': Multiple users rang simultaneously (press 0 scenario)  
@@ -157,11 +157,16 @@ class Call(models.Model):
         """
         self.ensure_one()
         
+        # First, check if pattern is already set (from gather_action or transfer)
+        if self.call_pattern:
+            logger.info(f"Call {self.id}: Pattern already set to '{self.call_pattern}'")
+            return self.call_pattern
+        
         if not self.channels:
             logger.info(f"Call {self.id}: No channels yet for pattern detection")
             return None
             
-        # Look at child channels that represent user interactions
+        # Look at child channels with explicit source tagging
         child_channels = self.channels.filtered(lambda c: c.parent_channel and c.called_pbx_user)
         
         if not child_channels:
@@ -170,9 +175,29 @@ class Call(models.Model):
             
         logger.info(f"Call {self.id}: Pattern detection with {len(child_channels)} child channels")
         
-        # Count distinct users that were initially called (before any transfers)
-        # For ring groups, multiple child channels are created simultaneously for different users
-        # For direct calls, typically one child channel is created initially
+        # Use explicit tagging instead of counting users
+        ring_group_channels = child_channels.filtered(lambda c: c.call_source == 'ring_group')
+        direct_call_channels = child_channels.filtered(lambda c: c.call_source == 'direct_call')
+        
+        if ring_group_channels:
+            pattern = 'ring_group'
+            logger.info(f"Call {self.id}: Detected pattern '{pattern}' from {len(ring_group_channels)} ring_group channels")
+        elif direct_call_channels:
+            pattern = 'direct_call'
+            logger.info(f"Call {self.id}: Detected pattern '{pattern}' from {len(direct_call_channels)} direct_call channels")
+        else:
+            # Fallback to old logic if no explicit tagging
+            logger.info(f"Call {self.id}: No explicit tagging found, using fallback logic")
+            return self._detect_call_pattern_fallback()
+        
+        return pattern
+    
+    def _detect_call_pattern_fallback(self):
+        """
+        Fallback pattern detection using the old timing-based logic.
+        Only used when explicit tagging is not available.
+        """
+        child_channels = self.channels.filtered(lambda c: c.parent_channel and c.called_pbx_user)
         
         initial_called_users = set()
         for channel in child_channels:
@@ -180,8 +205,7 @@ class Call(models.Model):
                 initial_called_users.add(channel.called_pbx_user.user.id)
         
         pattern = 'ring_group' if len(initial_called_users) > 1 else 'direct_call'
-        
-        logger.info(f"Call {self.id}: Detected pattern '{pattern}' from {len(initial_called_users)} initially called users")
+        logger.info(f"Call {self.id}: Fallback detected pattern '{pattern}' from {len(initial_called_users)} initially called users")
         return pattern
 
     def _finalize_call_details(self):
@@ -296,31 +320,42 @@ class Call(models.Model):
         self.ensure_one()
         logger.info(f"Call {self.id}: Populating user fields for ring group pattern")
         
-        # Find completed channels with users
-        completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user)
+        # Find channels tagged as ring_group with users
+        ring_group_channels = self.channels.filtered(lambda c: c.call_source == 'ring_group' and c.called_pbx_user and c.called_pbx_user.user)
         
-        if not completed_channels:
-            logger.warning(f"Call {self.id}: No completed channels with users found for ring group")
+        if not ring_group_channels:
+            logger.warning(f"Call {self.id}: No ring_group channels with users found")
+            return
+        
+        # Find which ring group channel was completed (answered)
+        completed_ring_channels = ring_group_channels.filtered(lambda c: c.status == 'completed')
+        
+        if not completed_ring_channels:
+            logger.info(f"Call {self.id}: No completed ring_group channels found - no one answered")
             return
             
-        # Sort by write_date to determine call flow order
-        completed_channels_by_flow = completed_channels.sorted('write_date')
-        
-        # ANSWERED USER: First person to pick up (earliest write_date)
-        first_channel = completed_channels_by_flow[0]
-        self.answered_user = first_channel.called_pbx_user.user
-        self.answered_pbx_user = first_channel.called_pbx_user
-        logger.info(f"Call {self.id}: answered_user set to {self.answered_user.login} (first to answer)")
+        # ANSWERED USER: Person who answered from ring group (should be only one)
+        if len(completed_ring_channels) > 1:
+            # Multiple completed? Use earliest ID (creation order)
+            answered_channel = completed_ring_channels.sorted('id')[0]
+            logger.warning(f"Call {self.id}: Multiple completed ring_group channels, using earliest: {answered_channel.id}")
+        else:
+            answered_channel = completed_ring_channels[0]
+            
+        self.answered_user = answered_channel.called_pbx_user.user
+        self.answered_pbx_user = answered_channel.called_pbx_user
+        logger.info(f"Call {self.id}: answered_user set to {self.answered_user.login} (answered from ring group)")
         
         # COMPLETED BY USER: Person who completed the call
         if self.transferred_users:
             # Check if transfer recipient completed the call
-            transfer_completed_channels = completed_channels.filtered(
+            all_completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user)
+            transfer_completed_channels = all_completed_channels.filtered(
                 lambda c: c.called_pbx_user.user in self.transferred_users
             )
             if transfer_completed_channels:
-                # Transfer recipient completed
-                final_channel = transfer_completed_channels.sorted('write_date')[-1]
+                # Transfer recipient completed - use most recent transfer completion
+                final_channel = transfer_completed_channels.sorted('id')[-1]
                 self.completed_by_user = final_channel.called_pbx_user.user
                 logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
             else:
@@ -444,13 +479,13 @@ class Call(models.Model):
                 channel.call.duration = total_duration
                 logger.debug(f"Call {channel.call.id} total duration updated to {total_duration} seconds from {len(channel.call.channels)} channels")
             
-            # EARLY PATTERN DETECTION: Try to detect call pattern as soon as we have enough info
-            # This helps with transfer tracking and other early decisions
+            # PATTERN DETECTION: Use explicit tagging from gather_action or fallback logic
+            # Pattern should already be set by gather_action, but check in case it wasn't
             if not channel.call.call_pattern:
                 detected_pattern = channel.call._detect_call_pattern()
                 if detected_pattern:
                     channel.call.call_pattern = detected_pattern
-                    logger.info(f"Call {channel.call.id}: Early pattern detection set to '{detected_pattern}'")
+                    logger.info(f"Call {channel.call.id}: Pattern detection set to '{detected_pattern}'")
         
         if (channel.call.direction == 'incoming' and params.get('CallStatus') == 'initiated' and
                 params.get('To').startswith('sip:')):
