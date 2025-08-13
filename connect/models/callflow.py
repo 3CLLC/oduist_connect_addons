@@ -88,6 +88,16 @@ class CallFlow(models.Model):
             if parent_call and choice:
                 target_extension = choice[0].exten
                 
+                # Determine pattern based on what the user chose
+                if (target_extension.model == 'connect.callflow' and 
+                    target_extension.dst and target_extension.dst.ring_users):
+                    # This choice leads to a ring group
+                    parent_call.call_pattern = 'ring_group'
+                    logger.info(f"Call {parent_call.id}: Pattern set to 'ring_group' via gather_action (choice: {choice[0].choice_digits})")
+                else:
+                    # This choice leads to a direct extension
+                    parent_call.call_pattern = 'direct_call'
+                    logger.info(f"Call {parent_call.id}: Pattern set to 'direct_call' via gather_action (choice: {choice[0].choice_digits})")
         
         return choice[0].exten.render(request=request)
 
@@ -117,6 +127,15 @@ class CallFlow(models.Model):
             self.get_prompt_message(response)
         # Add ringall users
         if self.ring_users:
+            # EXPLICIT PATTERN TAGGING: Set pattern for timeout scenario (no user input)
+            call_sid = request.get('CallSid')
+            if call_sid:
+                call = self.env['connect.call'].search([
+                    ('channels.sid', '=', call_sid)
+                ], limit=1)
+                if call and not call.call_pattern:
+                    call.call_pattern = 'ring_group'
+                    logger.info(f"Call {call.id}: Pattern set to 'ring_group' via render timeout (no user input)")
             
             callerId = request.get('Caller')
             # Hack to enable testing callflow from SIP or Client.

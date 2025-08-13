@@ -952,7 +952,7 @@ export class Phone extends Component {
         }
     }
 
-    async _onClickAcceptIncoming(ev) {
+    _onClickAcceptIncoming(ev) {
         if (this.session) {
             this.session.accept()
         }
@@ -961,18 +961,6 @@ export class Phone extends Component {
         this.state.phone_status = this.status.accepted
         this.state.inIncoming = false
         this.startCall()
-        
-        // Record answered_user in backend (first person wins)
-        try {
-            const session_id = this.session ? this.session.parameters.CallSid : null
-            await this.rpc('/connect/record_answer', {
-                call_id: this.call_id,
-                session_id: session_id
-            })
-        } catch (error) {
-            console.warn('Failed to record answered user:', error)
-            // Don't block the call flow if this fails
-        }
     }
 
     async _onClickRejectIncoming(ev) {
