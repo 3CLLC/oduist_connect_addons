@@ -199,8 +199,23 @@ class Channel(models.Model):
                             data['call_source'] = 'transfer'
                             logger.info(f"NEW CHANNEL: Tagged as 'transfer' (ring group call with {len(parent_channel_obj.call.transferred_users)} transferred users)")
                         else:
-                            data['call_source'] = 'ring_group'
-                            logger.info(f"NEW CHANNEL: Tagged as 'ring_group' based on call pattern")
+                            # Additional check: Look for already answered channels
+                            # If someone already answered this ring group call, new channels are likely transfers
+                            answered_channels = parent_channel_obj.call.channels.filtered(
+                                lambda c: c.status in ['in-progress', 'completed'] and c.called_pbx_user
+                            )
+                            if answered_channels and called_pbx_user:
+                                # Someone already answered, and this is a new channel to a different user
+                                already_answered_users = answered_channels.mapped('called_pbx_user.user')
+                                if data.get('called_user') not in already_answered_users.ids:
+                                    data['call_source'] = 'transfer'
+                                    logger.info(f"NEW CHANNEL: Tagged as 'transfer' (new channel to different user after {len(answered_channels)} already answered)")
+                                else:
+                                    data['call_source'] = 'ring_group'
+                                    logger.info(f"NEW CHANNEL: Tagged as 'ring_group' (same user as already answered)")
+                            else:
+                                data['call_source'] = 'ring_group'
+                                logger.info(f"NEW CHANNEL: Tagged as 'ring_group' based on call pattern")
                     elif parent_channel_obj.call.call_pattern == 'direct_call':
                         # For direct calls, child channels are either initial direct calls, transfers, or external dials
                         if parent_channel_obj.call.transferred_users:
