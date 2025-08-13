@@ -635,10 +635,10 @@ class Call(models.Model):
                         logger.info(f"STRATEGY 2: Using most recent non-completed channel {recipient_channel.id} as recipient")
                     else:
                         logger.warning(f"STRATEGY 2 FAILED: No suitable recipient channels found")
+                        return
+                else:
+                    logger.warning(f"STRATEGY 2 FAILED: No child channels found")
                     return
-            else:
-                logger.warning(f"STRATEGY 2 FAILED: No child channels found")
-                return
         
         if recipient_channel and recipient_channel.called_pbx_user:
             logger.info(f"Transfer recipient identified: {recipient_channel.called_pbx_user.name} (Channel {recipient_channel.id})")
