@@ -328,11 +328,22 @@ class Call(models.Model):
             return
         
         # Find which ring group channel was completed (answered)
+        # Exclude channels that were updated by transfer completion (they have transferred users)
         completed_ring_channels = ring_group_channels.filtered(lambda c: c.status == 'completed')
         
         if not completed_ring_channels:
             logger.info(f"Call {self.id}: No completed ring_group channels found - no one answered")
             return
+        
+        # Filter out channels that belong to transfer recipients (they shouldn't count as ring group answers)
+        if self.transferred_users:
+            genuine_ring_answered = completed_ring_channels.filtered(
+                lambda c: c.called_pbx_user.user not in self.transferred_users
+            )
+            if genuine_ring_answered:
+                filtered_count = len(completed_ring_channels) - len(genuine_ring_answered)
+                completed_ring_channels = genuine_ring_answered
+                logger.info(f"Call {self.id}: Filtered out {filtered_count} transfer recipient channels from ring group answers")
             
         # ANSWERED USER: Person who answered from ring group (should be only one)
         if len(completed_ring_channels) > 1:
