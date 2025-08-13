@@ -691,7 +691,9 @@ class Call(models.Model):
     def register_call(self, channel, params):
         try:
             notify_users = []
-            # Construct message from lines
+            transfer_missed_users = []  # Track users who missed transfers specifically
+            
+            # Construct base message from lines
             message = [channel.call.status.capitalize(), channel.call.direction,
                        'call at {}, '.format(channel.create_date.strftime('%Y-%m-%d %H:%M:%S'))]
             if channel.call.caller_user:
@@ -711,6 +713,7 @@ class Call(models.Model):
                         if (user.connect_user[0].missed_calls_notify and 
                             user != channel.call.completed_by_user):
                             notify_users.append(user)
+                            transfer_missed_users.append(user)  # Track as missed transfer
                             logger.info(f"Call {channel.call.id}: Adding transfer recipient {user.login} to missed call notifications (didn't complete transfer)")
                 else:
                     # Non-transfer scenario: notify all called users (original behavior)
@@ -733,16 +736,43 @@ class Call(models.Model):
                            (channel.call.status not in statuses or channel.call.transferred_users))
             if should_notify:
                 debug(self, 'Missed call notification to users: {}'.format(notify_users))
-                final_message = ' '.join(message)
-                if final_message.endswith(', '):
-                    final_message = final_message[:-2] + '.'
-                channel.call.register_call_post_message(
-                    channel.call,
-                    subtype_xmlid='mail.mt_comment',
-                    subject=channel.call.name,
-                    body=final_message,
-                    partner_ids=[k.partner_id.id for k in notify_users]
-                )
+                
+                # Send different messages for transfer recipients vs regular missed calls
+                regular_missed_users = [u for u in notify_users if u not in transfer_missed_users]
+                
+                # Send regular missed call notifications to non-transfer users
+                if regular_missed_users:
+                    final_message = ' '.join(message)
+                    if final_message.endswith(', '):
+                        final_message = final_message[:-2] + '.'
+                    channel.call.register_call_post_message(
+                        channel.call,
+                        subtype_xmlid='mail.mt_comment',
+                        subject=channel.call.name,
+                        body=final_message,
+                        partner_ids=[k.partner_id.id for k in regular_missed_users]
+                    )
+                
+                # Send transfer-specific missed call notifications
+                if transfer_missed_users:
+                    transfer_message = ['Missed transfer from', channel.call.direction,
+                                     'call at {}, '.format(channel.create_date.strftime('%Y-%m-%d %H:%M:%S'))]
+                    if channel.call.caller_user:
+                        transfer_message.append('caller: {}, '.format(channel.call.caller_user.name))
+                    if channel.call.answered_user:
+                        transfer_message.append('initially answered by: {}, '.format(channel.call.answered_user.name))
+                    
+                    transfer_final_message = ' '.join(transfer_message)
+                    if transfer_final_message.endswith(', '):
+                        transfer_final_message = transfer_final_message[:-2] + '.'
+                        
+                    channel.call.register_call_post_message(
+                        channel.call,
+                        subtype_xmlid='mail.mt_comment',
+                        subject=f"Missed Transfer - {channel.call.name}",
+                        body=transfer_final_message,
+                        partner_ids=[k.partner_id.id for k in transfer_missed_users]
+                    )
         except Exception as e:
             logger.exception('Register call error:', e)
 
