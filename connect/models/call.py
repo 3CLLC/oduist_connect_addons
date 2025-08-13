@@ -575,7 +575,15 @@ class Call(models.Model):
                     channel.call.partner, body=final_message, subtype_xmlid='mail.mt_note')
             # Register call to users
             statuses = ['completed']
-            if channel.call.direction == 'incoming' and channel.call.status not in statuses and notify_users:
+            # Only send missed call notifications if the call is truly finished
+            # Check if any channels are still in progress to avoid premature notifications during transfers
+            active_channels = channel.call.channels.filtered(lambda c: c.status not in CALL_END_STATUSES)
+            call_truly_finished = len(active_channels) == 0
+            
+            if (channel.call.direction == 'incoming' and 
+                channel.call.status not in statuses and 
+                notify_users and 
+                call_truly_finished):
                 debug(self, 'Missed call notification to users: {}'.format(notify_users))
                 final_message = ' '.join(message)
                 if final_message.endswith(', '):
