@@ -213,8 +213,9 @@ class Call(models.Model):
         transfer_recipient_users = self.transferred_users
         logger.info(f"Transfer recipients: {[u.login for u in transfer_recipient_users]}")
         
-        # Find channels for transfer recipients
-        transfer_recipient_channels = child_channels.filtered(
+        # Find channels for transfer recipients - look in ALL channels, not just child channels
+        # Transfer recipient channels might not always be child channels depending on call flow
+        transfer_recipient_channels = self.channels.filtered(
             lambda c: c.called_pbx_user and c.called_pbx_user.user in transfer_recipient_users
         )
         
@@ -328,27 +329,38 @@ class Call(models.Model):
         """
         self.ensure_one()
         
-        # Find completed channels with actual users (not root channels)
-        completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user)
-        if not completed_channels:
-            logger.warning(f"Call {self.id} marked as completed but no completed channels with users found")
+        # Find ALL channels with actual users (not just completed ones)
+        # This is important for transfer scenarios where original answerer channel may not be "completed"
+        user_channels = self.channels.filtered(lambda c: c.called_pbx_user)
+        if not user_channels:
+            logger.warning(f"Call {self.id} has no channels with users found")
             return
         
-        # Sort all completed channels by write_date to determine actual call flow order
-        completed_channels_by_flow = completed_channels.sorted('write_date')
+        # Sort all user channels by write_date to determine actual call flow order
+        user_channels_by_flow = user_channels.sorted('write_date')
         
         # ANSWERED USER: First person to pick up (earliest write_date)
-        first_channel = completed_channels_by_flow[0]
-        if first_channel.called_pbx_user and first_channel.called_pbx_user.user:
-            self.answered_user = first_channel.called_pbx_user.user
-            self.answered_pbx_user = first_channel.called_pbx_user
-            logger.debug(f"Call {self.id} answered by: {self.answered_user.login} (write_date: {first_channel.write_date})")
+        # Look for the first channel that had human interaction (not necessarily completed)
+        first_user_channel = user_channels_by_flow[0]
+        if first_user_channel.called_pbx_user and first_user_channel.called_pbx_user.user:
+            self.answered_user = first_user_channel.called_pbx_user.user
+            self.answered_pbx_user = first_user_channel.called_pbx_user
+            logger.debug(f"Call {self.id} answered by: {self.answered_user.login} (channel {first_user_channel.id}, write_date: {first_user_channel.write_date})")
         
         # COMPLETED BY USER: Person who completed the call
         # Use final_status if provided, otherwise fall back to current status
         call_status = final_status if final_status is not None else self.status
         
         if call_status == 'completed':
+            # Find completed channels specifically for determining who completed the call
+            completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user)
+            completed_channels_by_flow = completed_channels.sorted('write_date')
+            
+            if not completed_channels:
+                logger.warning(f"Call {self.id} status is completed but no completed channels with users found")
+                self.completed_by_user = False
+                return
+            
             # Check if transfers occurred - this determines who should be credited with completing the call
             if self.transferred_users:
                 logger.debug(f"Call {self.id} had transfers - determining completed_by_user from transfer recipients")
@@ -378,11 +390,13 @@ class Call(models.Model):
         
         logger.debug(f"=== DETERMINING COMPLETED BY USER FOR TRANSFER SCENARIO ===")
         logger.debug(f"Transferred users: {[u.login for u in self.transferred_users]}")
-        logger.debug(f"Completed channels: {len(completed_channels_by_flow)}")
+        logger.debug(f"Completed channels provided: {len(completed_channels_by_flow)}")
         
-        # Find completed channels that belong to transfer recipients
-        transfer_recipient_completed_channels = completed_channels_by_flow.filtered(
-            lambda c: c.called_pbx_user and c.called_pbx_user.user in self.transferred_users
+        # Find ALL completed channels that belong to transfer recipients
+        # Look in all channels, not just the ones passed in
+        all_completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user)
+        transfer_recipient_completed_channels = all_completed_channels.filtered(
+            lambda c: c.called_pbx_user.user in self.transferred_users
         )
         
         logger.debug(f"Transfer recipient completed channels: {len(transfer_recipient_completed_channels)}")
