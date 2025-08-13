@@ -559,7 +559,10 @@ class Call(models.Model):
             if channel.call.called_users:
                 message.append('dialed users: {}, '.format(', '.join(k.name for k in channel.call.called_users)))
                 # Missed call notification, filter users who have it enabled.
-                for user in channel.call.called_users:
+                # If transfers occurred, only notify transfer recipients for missed calls
+                # Otherwise, notify all called users (original behavior)
+                users_to_check = channel.call.transferred_users if channel.call.transferred_users else channel.call.called_users
+                for user in users_to_check:
                     if user.connect_user[0].missed_calls_notify:
                         notify_users.append(user)
             # Register call at partner.
