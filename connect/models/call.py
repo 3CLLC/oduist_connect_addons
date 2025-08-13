@@ -390,9 +390,10 @@ class Call(models.Model):
                 params.get('To').startswith('sip:')):
             # Desktop notification only for SIP calls.
             channel.connect_notify()
-        # Register call when the last channel closes.
-        latest_channel = channel.call.channels.sorted(key='id', reverse=True)[0]
-        if channel == latest_channel and params.get('CallStatus') in CALL_END_STATUSES:
+        # Register call only when ALL channels have ended (call truly finished)
+        # Check if this channel ending means the entire call is complete
+        all_channels_ended = all(ch.status in CALL_END_STATUSES for ch in channel.call.channels)
+        if all_channels_ended and params.get('CallStatus') in CALL_END_STATUSES:
             self.register_call(channel, params)
         # Reload call view
         self.env['connect.settings'].connect_reload_view('connect.call')
@@ -575,15 +576,8 @@ class Call(models.Model):
                     channel.call.partner, body=final_message, subtype_xmlid='mail.mt_note')
             # Register call to users
             statuses = ['completed']
-            # Only send missed call notifications if the call is truly finished
-            # Check if any channels are still in progress to avoid premature notifications during transfers
-            active_channels = channel.call.channels.filtered(lambda c: c.status not in CALL_END_STATUSES)
-            call_truly_finished = len(active_channels) == 0
-            
-            if (channel.call.direction == 'incoming' and 
-                channel.call.status not in statuses and 
-                notify_users and 
-                call_truly_finished):
+            # Since register_call() now only runs when call is truly finished, we can safely send missed call notifications
+            if channel.call.direction == 'incoming' and channel.call.status not in statuses and notify_users:
                 debug(self, 'Missed call notification to users: {}'.format(notify_users))
                 final_message = ' '.join(message)
                 if final_message.endswith(', '):
