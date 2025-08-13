@@ -69,3 +69,53 @@ class ConnectPlusController(http.Controller):
             return "True"
         else:
             return "False"
+
+    @http.route('/connect/record_answer', type='json', auth='user', methods=['POST'])
+    def record_answer(self, call_id=None, session_id=None):
+        """
+        Record that the current user answered a call.
+        Only sets answered_user if not already set (first person wins).
+        
+        :param call_id: The ID of the connect.call record (optional)
+        :param session_id: The Twilio session ID to find the call (fallback)
+        :return: dict with success status and message
+        """
+        try:
+            call = None
+            
+            # Try to find call by call_id first
+            if call_id:
+                call = http.request.env['connect.call'].browse(call_id)
+                if not call.exists():
+                    call = None
+                    logger.warning(f"Record answer: Call {call_id} not found, will try session_id fallback")
+            
+            # Fallback: find call by session_id
+            if not call and session_id:
+                channel = http.request.env['connect.channel'].search([('sid', '=', session_id)], limit=1)
+                if channel and channel.call:
+                    call = channel.call
+                    logger.info(f"Record answer: Found call {call.id} via session_id {session_id}")
+                else:
+                    logger.warning(f"Record answer: No call found for session_id {session_id}")
+            
+            if not call:
+                logger.error(f"Record answer: No call found with call_id={call_id}, session_id={session_id}")
+                return {
+                    'success': False,
+                    'error': 'Call not found'
+                }
+            
+            # Get current user ID
+            current_user_id = http.request.env.user.id
+            result = call.record_answered_user(current_user_id)
+            
+            logger.info(f"Record answer endpoint: call_id={call.id}, user_id={current_user_id}, result={result}")
+            return result
+            
+        except Exception as e:
+            logger.error(f"Record answer endpoint failed: {e}", exc_info=True)
+            return {
+                'success': False,
+                'error': str(e)
+            }

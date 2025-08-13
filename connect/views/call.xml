@@ -44,7 +44,6 @@
                 <field name="duration_human" optional="show" sum="1"/>
                 <field name="direction" optional="show"/>
                 <field name="status" optional="show"/>
-                <field name="call_pattern" optional="hide"/>
                 <field name="recording_icon" widget="html" optional="show"/>
                 <field name="voicemail_icon" optional="show"/>
             </list>
@@ -155,7 +154,6 @@
                                         <field name="duration"/>
                                         <field name="technical_direction"/>
                                         <field name="status"/>
-                                        <field name="call_source" optional="hide"/>
                                         <field name="caller_number"/>
                                         <field name="called_number"/>
                                     </list>

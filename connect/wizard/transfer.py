@@ -385,11 +385,6 @@ class CallForwardHandler(models.TransientModel):
                     if call and call.exists():
                         call.add_transferred_user(user.user)
                         logger.info(f'Added transfer target {user.user.login} to call {call.id}')
-                        
-                        # EXPLICIT PATTERN TAGGING: Ensure call pattern is set for transfers
-                        if not call.call_pattern:
-                            call.call_pattern = 'direct_call'  # Transfers only happen from direct calls
-                            logger.info(f'Call {call.id}: Set pattern to direct_call during transfer')
                     else:
                         logger.warning(f'Could not find call record to track transfer to {user.user.login}')
                 except Exception as e:
