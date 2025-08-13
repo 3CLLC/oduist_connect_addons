@@ -378,17 +378,28 @@ class Call(models.Model):
         user_channels_by_flow = user_channels.sorted('write_date')
         logger.info(f"User channels sorted by write_date: {user_channels_by_flow.mapped('id')}")
         
-        # ANSWERED USER: First person to pick up (earliest write_date)
-        # Look for the first channel that had human interaction (not necessarily completed)
-        first_user_channel = user_channels_by_flow[0]
-        logger.info(f"First user channel by write_date: ID={first_user_channel.id}, status={first_user_channel.status}")
+        # ANSWERED USER: First person to actually PICK UP the call (not just rung)
+        # Only channels with statuses indicating they answered should count
+        answered_user_channels = user_channels.filtered(
+            lambda c: c.status in ['completed', 'in-progress'] and c.called_pbx_user and c.called_pbx_user.user
+        )
         
-        if first_user_channel.called_pbx_user and first_user_channel.called_pbx_user.user:
-            logger.info(f"SETTING answered_user to: {first_user_channel.called_pbx_user.user.login}")
-            self.answered_user = first_user_channel.called_pbx_user.user
-            self.answered_pbx_user = first_user_channel.called_pbx_user
+        logger.info(f"Channels where users actually answered (completed/in-progress): {len(answered_user_channels)}")
+        for channel in answered_user_channels:
+            logger.info(f"  Answered channel: ID={channel.id}, status={channel.status}, user={channel.called_pbx_user.user.login}")
+        
+        if answered_user_channels:
+            # Someone actually answered - set answered_user to first one chronologically
+            answered_channels_by_flow = answered_user_channels.sorted('write_date')
+            first_answered_channel = answered_channels_by_flow[0]
+            logger.info(f"SETTING answered_user to: {first_answered_channel.called_pbx_user.user.login} (actually answered)")
+            self.answered_user = first_answered_channel.called_pbx_user.user
+            self.answered_pbx_user = first_answered_channel.called_pbx_user
         else:
-            logger.info(f"First user channel has no Odoo user - not setting answered_user")
+            # No one actually answered (all were no-answer, busy, failed, etc.)
+            logger.info(f"No users actually answered - clearing answered_user")
+            self.answered_user = False
+            self.answered_pbx_user = False
         
         # COMPLETED BY USER: Person who completed the call
         # Use final_status if provided, otherwise fall back to current status
