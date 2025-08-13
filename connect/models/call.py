@@ -56,6 +56,11 @@ class Call(models.Model):
     # Transfer tracking fields
     transferred_users = fields.Many2many('res.users', 'connect_call_transfer_rel', 'call_id', 'user_id', string='Transferred Users', readonly=True)
     completed_by_user = fields.Many2one('res.users', ondelete='set null', string='Completed By', readonly=True)
+    # Call pattern tracking
+    call_pattern = fields.Selection([
+        ('ring_group', 'Ring Group (Multiple Users)'),
+        ('direct_call', 'Direct Call (Single User)')
+    ], string='Call Pattern', readonly=True, help='Detected call pattern: ring group (press 0) vs direct call (press 1 for extension)')
     # Scheduled fields.
     scheduled_datetime = fields.Datetime()
     # Voicemail fields
@@ -141,178 +146,236 @@ class Call(models.Model):
                 record.duration_minutes = 0
                 record.duration_human = "00:00"
 
-    def _update_call_status_from_channels(self):
+    def _detect_call_pattern(self):
         """
-        Update call status based on real channel pattern analysis.
+        Detect call pattern early in call setup to determine how to handle user field population.
+        This runs when we have enough information to determine the pattern, not at the very end.
         
-        Key insights from debug data:
-        1. Root channel = incoming call, always goes to voicemail (completed but no called_pbx_user)
-        2. Child channels = actual user interactions (parallel rings + transfers)
-        3. Human interaction only happens in child channels with called_pbx_user
-        4. Sequential child creation suggests transfers, parallel creation suggests ring group
+        Returns:
+            'ring_group': Multiple users rang simultaneously (press 0 scenario)  
+            'direct_call': Single user called initially (press 1 for extension scenario)
         """
         self.ensure_one()
         
         if not self.channels:
-            logger.warning(f"Call {self.id} has no channels to determine status from")
-            return
-        
-        # Separate channels by type
-        root_channels = self.channels.filtered(lambda c: not c.parent_channel)
-        child_channels = self.channels.filtered(lambda c: c.parent_channel)
-        
-        logger.debug(f"Call {self.id}: {len(root_channels)} root, {len(child_channels)} child channels")
+            logger.info(f"Call {self.id}: No channels yet for pattern detection")
+            return None
+            
+        # Look at child channels that represent user interactions
+        child_channels = self.channels.filtered(lambda c: c.parent_channel and c.called_pbx_user)
         
         if not child_channels:
-            # No child channels = no user interaction attempted, use root status
-            # This would be very unusual based on our debug data
-            new_status = root_channels[0].status if root_channels else 'no-answer'
-            logger.debug(f"Call {self.id} no child channels - using root status: {new_status}")
-        else:
-            # Analyze child channels to determine actual call outcome
-            new_status = self._analyze_child_channel_interactions(child_channels)
-            logger.debug(f"Call {self.id} determined from child channels: {new_status}")
-        
-        # Only update if status actually changed
-        if self.status != new_status:
-            logger.info(f"Updating call {self.id} status from '{self.status}' to '{new_status}'")
-            self.status = new_status
+            logger.info(f"Call {self.id}: No child channels with users yet for pattern detection")
+            return None
             
-            # Update user fields based on final status
-            self._update_answered_user_from_channels(final_status=new_status)
-        else:
-            logger.debug(f"Call {self.id} status remains '{self.status}'")
+        logger.info(f"Call {self.id}: Pattern detection with {len(child_channels)} child channels")
+        
+        # Count distinct users that were initially called (before any transfers)
+        # For ring groups, multiple child channels are created simultaneously for different users
+        # For direct calls, typically one child channel is created initially
+        
+        initial_called_users = set()
+        for channel in child_channels:
+            if channel.called_pbx_user and channel.called_pbx_user.user:
+                initial_called_users.add(channel.called_pbx_user.user.id)
+        
+        pattern = 'ring_group' if len(initial_called_users) > 1 else 'direct_call'
+        
+        logger.info(f"Call {self.id}: Detected pattern '{pattern}' from {len(initial_called_users)} initially called users")
+        return pattern
 
-    def _analyze_child_channel_interactions(self, child_channels):
+    def _finalize_call_details(self):
         """
-        DEBUG VERSION: Analyze child channels to determine the true call outcome.
-        Child channels represent the actual user interactions.
+        Called once when all channels are closed to do final call processing.
+        This replaces all the complex mid-call status update logic.
         """
-        logger.info(f"=== ANALYZING CHILD CHANNELS FOR CALL {self.id} ===")
-        logger.info(f"Total child channels: {len(child_channels)}")
+        self.ensure_one()
+        logger.info(f"=== FINALIZING CALL DETAILS FOR CALL {self.id} ===")
         
-        # Find channels where humans actually answered
-        human_answered = child_channels.filtered(
-            lambda c: c.status == 'completed' and c.called_pbx_user
-        )
+        # Step 1: Detect call pattern if not already set
+        if not self.call_pattern:
+            detected_pattern = self._detect_call_pattern()
+            if detected_pattern:
+                self.call_pattern = detected_pattern
+                logger.info(f"Call {self.id}: Set call pattern to '{detected_pattern}'")
         
-        logger.info(f"Human answered channels: {len(human_answered)} (IDs: {human_answered.mapped('id')})")
-        
-        for channel in human_answered:
-            logger.info(f"  Human channel {channel.id}: status={channel.status}, pbx_user={channel.called_pbx_user.name}")
-        
-        if not human_answered:
-            # No human answered any child channel
-            logger.info("No human answered - checking other statuses")
-            channel_statuses = child_channels.mapped('status')
-            logger.info(f"Child channel statuses: {channel_statuses}")
-            
-            if 'failed' in channel_statuses:
-                logger.info("Returning 'failed'")
-                return 'failed'
-            elif 'busy' in channel_statuses:
-                logger.info("Returning 'busy'")
-                return 'busy'
-            else:
-                # All were no-answer or other non-completion status
-                logger.info("Returning 'no-answer' (default)")
-                return 'no-answer'
-        
-        # At least one human answered - now determine if this was the final outcome
-        logger.info(f"At least one human answered - analyzing pattern")
-        
-        # Check for transfer pattern: multiple human interactions suggesting A->B transfer
-        if len(human_answered) > 1:
-            # Multiple humans were involved - this suggests transfers
-            # For transfers, find the channel that was updated most recently (via transfer completion webhook)
-            # This indicates the actual transfer recipient who completed the call
-            final_human_channel = human_answered.sorted(key='write_date', reverse=True)[0]
-            logger.info(f"Multiple human interactions - final: channel {final_human_channel.id} (most recently updated), returning 'completed'")
-            return 'completed'
-        
-        # Single human answered - check if this was a failed transfer or regular call completion
-        human_channel = human_answered[0]
-        
-        # Look for channels that were recently updated (indicating transfer processing)
-        # Sort all child channels by write_date to find the most recently updated
-        recently_updated_channels = child_channels.sorted(key='write_date', reverse=True)
-        most_recent_channel = recently_updated_channels[0] if recently_updated_channels else None
-        
-        if most_recent_channel and most_recent_channel != human_channel:
-            # A different channel was updated more recently than the completed one
-            # This suggests a transfer was attempted
-            logger.info(f"Channel {most_recent_channel.id} was updated more recently than completed channel {human_channel.id}")
-            logger.info(f"Most recent channel status: {most_recent_channel.status}, user: {most_recent_channel.called_pbx_user.name if most_recent_channel.called_pbx_user else 'None'}")
-            
-            if most_recent_channel.status in ['no-answer', 'busy', 'failed']:
-                # Transfer was attempted but failed
-                logger.info(f"Failed transfer detected - returning 'no-answer'")
-                return 'no-answer'
-            else:
-                # This shouldn't happen - if transfer succeeded, we'd have 2 completed channels
-                logger.warning(f"Unexpected: most recent channel status {most_recent_channel.status} - treating as completed")
-                return 'completed'
+        # Step 2: Populate user fields based on detected pattern
+        if self.call_pattern == 'direct_call':
+            self._populate_user_fields_direct_call()
+        elif self.call_pattern == 'ring_group':
+            self._populate_user_fields_ring_group()
         else:
-            # No recent updates or the completed channel is the most recent - regular call completion
-            logger.info(f"Single human answered: channel {human_channel.id} - regular call completion, returning 'completed'")
-            return 'completed'
-
-    def _update_answered_user_from_channels(self, final_status=None):
-        """
-        Set user fields based on call flow using write_date (actual call timeline):
-        - answered_user: First person to pick up the call (earliest write_date)
-        - transferred_users: Sequential list of transfer recipients (by write_date order)
-        - completed_by_user: Person who actually completed the call (latest write_date)
+            logger.warning(f"Call {self.id}: Unknown call pattern '{self.call_pattern}', using fallback logic")
+            self._populate_user_fields_fallback()
         
-        :param final_status: The final call status to determine completed_by_user
+        # Step 3: Set final call status (simplified logic)
+        self._set_final_call_status()
+        
+        logger.info(f"Call {self.id}: Final status='{self.status}', answered_user='{self.answered_user.login if self.answered_user else None}', completed_by_user='{self.completed_by_user.login if self.completed_by_user else None}', transferred_users={len(self.transferred_users)}")
+        
+    def _set_final_call_status(self):
+        """
+        Simplified call status logic based on answered_user field.
+        If anyone answered the call, status is 'completed'.
+        If no one answered, check for specific error conditions.
         """
         self.ensure_one()
         
-        # Find completed channels with actual users (not root channels)
-        completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user)
-        if not completed_channels:
-            logger.warning(f"Call {self.id} marked as completed but no completed channels with users found")
-            return
+        if self.answered_user:
+            # Someone answered the call - it's completed regardless of transfers
+            self.status = 'completed'
+            logger.info(f"Call {self.id}: Status set to 'completed' (answered by {self.answered_user.login})")
+        else:
+            # No one answered - check for specific error conditions
+            channel_statuses = self.channels.mapped('status')
+            
+            if 'failed' in channel_statuses:
+                self.status = 'failed'
+                logger.info(f"Call {self.id}: Status set to 'failed' (channel failed)")
+            elif 'busy' in channel_statuses:
+                self.status = 'busy'
+                logger.info(f"Call {self.id}: Status set to 'busy' (channel busy)")
+            else:
+                self.status = 'no-answer'
+                logger.info(f"Call {self.id}: Status set to 'no-answer' (no one answered)")
+
+    def _populate_user_fields_direct_call(self):
+        """
+        Populate user fields for direct call pattern (press 1 for extension).
+        In this pattern, one user is called initially, may transfer to others.
+        """
+        self.ensure_one()
+        logger.info(f"Call {self.id}: Populating user fields for direct call pattern")
         
-        # Sort all completed channels by write_date to determine actual call flow order
+        # Find all channels with users (completed or not)
+        user_channels = self.channels.filtered(lambda c: c.called_pbx_user and c.called_pbx_user.user)
+        
+        if not user_channels:
+            logger.warning(f"Call {self.id}: No channels with users found for direct call")
+            return
+            
+        # Sort by creation order to determine call flow
+        user_channels_by_time = user_channels.sorted('create_date')
+        
+        # ANSWERED USER: First user in the call (earliest created channel)
+        first_channel = user_channels_by_time[0]
+        if first_channel.called_pbx_user and first_channel.called_pbx_user.user:
+            self.answered_user = first_channel.called_pbx_user.user
+            self.answered_pbx_user = first_channel.called_pbx_user
+            logger.info(f"Call {self.id}: answered_user set to {self.answered_user.login} (first channel)")
+        
+        # COMPLETED BY USER: User who actually completed the call
+        # Look for completed channels specifically
+        completed_channels = user_channels.filtered(lambda c: c.status == 'completed')
+        
+        if completed_channels:
+            if self.transferred_users:
+                # Transfer occurred - check if transfer recipient completed the call
+                transfer_completed_channels = completed_channels.filtered(
+                    lambda c: c.called_pbx_user.user in self.transferred_users
+                )
+                if transfer_completed_channels:
+                    # Transfer recipient completed the call
+                    final_channel = transfer_completed_channels.sorted('write_date')[-1]
+                    self.completed_by_user = final_channel.called_pbx_user.user
+                    logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
+                else:
+                    # Transfer failed, original answerer completed
+                    self.completed_by_user = self.answered_user
+                    logger.info(f"Call {self.id}: completed_by_user set to original answerer {self.completed_by_user.login} (transfer failed)")
+            else:
+                # No transfer - original answerer completed
+                self.completed_by_user = self.answered_user
+                logger.info(f"Call {self.id}: completed_by_user set to original answerer {self.completed_by_user.login} (no transfer)")
+
+    def _populate_user_fields_ring_group(self):
+        """
+        Populate user fields for ring group pattern (press 0 - ring all reps).
+        In this pattern, multiple users are rung simultaneously, first to answer gets it.
+        """
+        self.ensure_one()
+        logger.info(f"Call {self.id}: Populating user fields for ring group pattern")
+        
+        # Find completed channels with users
+        completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user)
+        
+        if not completed_channels:
+            logger.warning(f"Call {self.id}: No completed channels with users found for ring group")
+            return
+            
+        # Sort by write_date to determine call flow order
         completed_channels_by_flow = completed_channels.sorted('write_date')
         
         # ANSWERED USER: First person to pick up (earliest write_date)
         first_channel = completed_channels_by_flow[0]
-        if first_channel.called_pbx_user and first_channel.called_pbx_user.user:
+        self.answered_user = first_channel.called_pbx_user.user
+        self.answered_pbx_user = first_channel.called_pbx_user
+        logger.info(f"Call {self.id}: answered_user set to {self.answered_user.login} (first to answer)")
+        
+        # COMPLETED BY USER: Person who completed the call
+        if self.transferred_users:
+            # Check if transfer recipient completed the call
+            transfer_completed_channels = completed_channels.filtered(
+                lambda c: c.called_pbx_user.user in self.transferred_users
+            )
+            if transfer_completed_channels:
+                # Transfer recipient completed
+                final_channel = transfer_completed_channels.sorted('write_date')[-1]
+                self.completed_by_user = final_channel.called_pbx_user.user
+                logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
+            else:
+                # Transfer failed, original answerer completed
+                self.completed_by_user = self.answered_user
+                logger.info(f"Call {self.id}: completed_by_user set to original answerer {self.completed_by_user.login} (transfer failed)")
+        else:
+            # No transfer - answered user also completed
+            self.completed_by_user = self.answered_user
+            logger.info(f"Call {self.id}: completed_by_user set to answerer {self.completed_by_user.login} (no transfer)")
+
+    def _populate_user_fields_fallback(self):
+        """
+        Fallback user field population when pattern detection fails.
+        Uses simple logic similar to original approach.
+        """
+        self.ensure_one()
+        logger.info(f"Call {self.id}: Using fallback user field population")
+        
+        # Find any completed channels with users
+        completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user)
+        
+        if completed_channels:
+            sorted_channels = completed_channels.sorted('write_date')
+            
+            # Set answered_user to first completed channel
+            first_channel = sorted_channels[0]
             self.answered_user = first_channel.called_pbx_user.user
             self.answered_pbx_user = first_channel.called_pbx_user
-            logger.debug(f"Call {self.id} answered by: {self.answered_user.login} (write_date: {first_channel.write_date})")
-        
-        # COMPLETED BY USER: Person who completed the call (latest write_date)
-        # Use final_status if provided, otherwise fall back to current status
-        call_status = final_status if final_status is not None else self.status
-        
-        if call_status == 'completed':
-            final_channel = completed_channels_by_flow[-1]  # Last in write_date order
-            if final_channel.called_pbx_user and final_channel.called_pbx_user.user:
-                self.completed_by_user = final_channel.called_pbx_user.user
-                logger.debug(f"Call {self.id} completed by: {self.completed_by_user.login} (write_date: {final_channel.write_date})")
-        else:
-            # Call not completed - clear completed_by_user
-            self.completed_by_user = False
-            logger.debug(f"Call {self.id} status '{call_status}' - clearing completed_by_user")
-        
-        # TRANSFERRED USERS: Track via actual transfer initiation (see transfer.py integration)
-        # This field gets populated when transfers are actually initiated, not inferred from channels
-        # No automatic logic here - transfers are tracked when they happen
+            
+            # Set completed_by_user to last completed channel
+            last_channel = sorted_channels[-1] 
+            self.completed_by_user = last_channel.called_pbx_user.user
+            
+            logger.info(f"Call {self.id}: Fallback - answered_user={self.answered_user.login}, completed_by_user={self.completed_by_user.login}")
 
     def add_transferred_user(self, user):
         """
         Add a user to the transferred_users field when a transfer is initiated.
         Called from transfer.py when transfers actually happen.
+        This provides explicit transfer tracking instead of inferring from channel states.
         """
         self.ensure_one()
         if user and hasattr(user, 'id'):
             current_transfer_ids = self.transferred_users.ids
             if user.id not in current_transfer_ids:
                 self.transferred_users = [(4, user.id)]  # Add user to many2many
-                logger.info(f"Call {self.id}: Added {user.login} to transferred users")
+                logger.info(f"Call {self.id}: Transfer initiated to {user.login} (added to transferred_users)")
+                
+                # Update call pattern if needed - transfers can help us understand the call type
+                if not self.call_pattern:
+                    detected_pattern = self._detect_call_pattern()
+                    if detected_pattern:
+                        self.call_pattern = detected_pattern
+                        logger.info(f"Call {self.id}: Pattern detection triggered by transfer: '{detected_pattern}'")
 
     def write(self, vals):
         return super().write(vals)
@@ -373,18 +436,21 @@ class Call(models.Model):
         if not channel.call.partner and channel.partner:
             channel.call.partner = channel.partner
             
-        # Update call status and duration based on all channels
+        # Update call duration based on all channels
         if channel.call:
-            # Always update call status when any channel status changes
-            channel.call._update_call_status_from_channels()
-            
             # Set call duration as sum of all channel durations
             if channel.call.channels:
                 total_duration = sum(channel.call.channels.mapped('duration') or [0])
                 channel.call.duration = total_duration
                 logger.debug(f"Call {channel.call.id} total duration updated to {total_duration} seconds from {len(channel.call.channels)} channels")
             
-        # REMOVE THE OLD ANSWERED USER LOGIC - now handled by _update_call_status_from_channels()
+            # EARLY PATTERN DETECTION: Try to detect call pattern as soon as we have enough info
+            # This helps with transfer tracking and other early decisions
+            if not channel.call.call_pattern:
+                detected_pattern = channel.call._detect_call_pattern()
+                if detected_pattern:
+                    channel.call.call_pattern = detected_pattern
+                    logger.info(f"Call {channel.call.id}: Early pattern detection set to '{detected_pattern}'")
         
         if (channel.call.direction == 'incoming' and params.get('CallStatus') == 'initiated' and
                 params.get('To').startswith('sip:')):
@@ -394,6 +460,8 @@ class Call(models.Model):
         # Check if this channel ending means the entire call is complete
         all_channels_ended = all(ch.status in CALL_END_STATUSES for ch in channel.call.channels)
         if all_channels_ended and params.get('CallStatus') in CALL_END_STATUSES:
+            # NOW do all the final call processing
+            channel.call._finalize_call_details()
             self.register_call(channel, params)
         # Reload call view
         self.env['connect.settings'].connect_reload_view('connect.call')
@@ -532,13 +600,9 @@ class Call(models.Model):
                 'duration': duration,
             })
             
-            # Force call status update based on all channels
-            call._update_call_status_from_channels()
-            logger.info(f"Updated call {call.id} status to: {call.status}")
-            
-            # Update answered user fields for completed transfers
-            if call.status == 'completed':
-                call._update_answered_user_from_channels()
+            # Note: We don't do final processing here because not all channels may be closed yet
+            # Final processing will happen when all channels are closed in on_call_status
+            logger.info(f"Transfer completion processed for call {call.id} - final processing will occur when all channels close")
                 
         else:
             logger.warning(f"Could not identify transfer recipient channel or PBX user")
