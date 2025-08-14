@@ -774,7 +774,7 @@ class Call(models.Model):
             
             # For now, let's try to find any available PBX users who could be transfer targets
             # and use heuristics to pick the most likely one
-            available_pbx_users = self.env['connect.user'].search([
+            available_pbx_users = self.env['connect.user'].sudo().search([
                 ('client_enabled', '=', True),
                 ('user', '!=', False)  # Has an Odoo user linked
             ])
@@ -789,7 +789,7 @@ class Call(models.Model):
             
             # For now, let's try a different approach:
             # Look at the most recent transfer activity in any call to see if there's a pattern
-            recent_transfers = self.env['connect.call'].search([
+            recent_transfers = self.env['connect.call'].sudo().search([
                 ('transferred_users', '!=', False),
                 ('id', '!=', call.id)
             ], limit=1, order='id desc')
@@ -811,7 +811,7 @@ class Call(models.Model):
                 return None
                 
             # Find the PBX user for this Odoo user
-            pbx_user = self.env['connect.user'].search([('user', '=', target_user.id)], limit=1)
+            pbx_user = self.env['connect.user'].sudo().search([('user', '=', target_user.id)], limit=1)
             if not pbx_user:
                 logger.warning(f"Could not find PBX user for {target_user.login}")
                 return None
