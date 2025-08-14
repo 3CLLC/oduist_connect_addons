@@ -281,16 +281,49 @@ class Call(models.Model):
         # Sort by creation order to determine call flow
         user_channels_by_time = user_channels.sorted('create_date')
         
-        # ANSWERED USER: First user in the call (earliest created channel)
-        first_channel = user_channels_by_time[0]
-        if first_channel.called_pbx_user and first_channel.called_pbx_user.user:
-            self.answered_user = first_channel.called_pbx_user.user
-            self.answered_pbx_user = first_channel.called_pbx_user
-            logger.info(f"Call {self.id}: answered_user set to {self.answered_user.login} (first channel)")
+        # ANSWERED USER: Only set if someone actually answered (has completed channel)
+        # Use same completion-based logic as ring groups
+        completed_channels = user_channels.filtered(lambda c: c.status == 'completed')
+        
+        # Filter out transfer recipients from initial answer detection
+        # The person who answered initially should not be a transfer recipient
+        if self.transferred_users and completed_channels:
+            initial_answered_channels = completed_channels.filtered(
+                lambda c: c.called_pbx_user.user not in self.transferred_users
+            )
+            if initial_answered_channels:
+                # Use same logic as ring groups - earliest ID if multiple, otherwise just take it
+                if len(initial_answered_channels) > 1:
+                    answered_channel = initial_answered_channels.sorted('id')[0]
+                    logger.warning(f"Call {self.id}: Multiple initial completed channels, using earliest: {answered_channel.id}")
+                else:
+                    answered_channel = initial_answered_channels[0]
+                    
+                self.answered_user = answered_channel.called_pbx_user.user
+                self.answered_pbx_user = answered_channel.called_pbx_user
+                logger.info(f"Call {self.id}: answered_user set to {self.answered_user.login} (initial answerer, excluding transfers)")
+            else:
+                # All completed channels are transfer recipients - no initial answerer
+                logger.info(f"Call {self.id}: No initial answerer found (all completed channels are transfers)")
+        elif completed_channels:
+            # No transfers, use same logic as ring groups
+            if len(completed_channels) > 1:
+                answered_channel = completed_channels.sorted('id')[0]
+                logger.warning(f"Call {self.id}: Multiple completed channels, using earliest: {answered_channel.id}")
+            else:
+                answered_channel = completed_channels[0]
+                
+            self.answered_user = answered_channel.called_pbx_user.user
+            self.answered_pbx_user = answered_channel.called_pbx_user
+            logger.info(f"Call {self.id}: answered_user set to {self.answered_user.login} (completed channel, no transfers)")
+        else:
+            # No completed channels - no one answered
+            logger.info(f"Call {self.id}: No completed channels found - leaving answered_user empty")
         
         # COMPLETED BY USER: User who actually completed the call
-        # Look for completed channels specifically
-        completed_channels = user_channels.filtered(lambda c: c.status == 'completed')
+        # Re-query completed channels to ensure we have any newly created transfer channels
+        all_user_channels = self.channels.filtered(lambda c: c.called_pbx_user and c.called_pbx_user.user)
+        completed_channels = all_user_channels.filtered(lambda c: c.status == 'completed')
         
         if completed_channels:
             if self.transferred_users:
@@ -300,7 +333,13 @@ class Call(models.Model):
                 )
                 if transfer_completed_channels:
                     # Transfer recipient completed the call
-                    final_channel = transfer_completed_channels.sorted('write_date')[-1]
+                    # Use same logic as ring groups - latest ID if multiple, otherwise just take it
+                    if len(transfer_completed_channels) > 1:
+                        final_channel = transfer_completed_channels.sorted('id')[-1]
+                        logger.info(f"Call {self.id}: Multiple transfer completions, using latest: {final_channel.id}")
+                    else:
+                        final_channel = transfer_completed_channels[0]
+                    
                     self.completed_by_user = final_channel.called_pbx_user.user
                     logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
                 else:
