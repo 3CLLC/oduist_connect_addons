@@ -649,8 +649,11 @@ class Call(models.Model):
             # Find transfer target user from transferred_users
             if call.transferred_users:
                 transfer_target_user = call.transferred_users[-1]  # Most recent transfer
+                logger.info(f"STRATEGY 1B: Looking for PBX user for transfer target {transfer_target_user.login} (ID: {transfer_target_user.id})")
+                
                 # Find the PBX user for this Odoo user
                 pbx_user = self.env['connect.user'].search([('user', '=', transfer_target_user.id)], limit=1)
+                logger.info(f"STRATEGY 1B: PBX user search result: {pbx_user.name if pbx_user else 'None found'}")
                 
                 if pbx_user:
                     # Create the missing transfer channel
@@ -668,10 +671,18 @@ class Call(models.Model):
                         'called': pbx_user.uri
                     }
                     
+                    logger.info(f"STRATEGY 1B: Creating channel with data: {channel_data}")
                     recipient_channel = self.env['connect.channel'].create(channel_data)
                     logger.info(f"STRATEGY 1B SUCCESS: Created transfer channel {recipient_channel.id} for {transfer_target_user.login}")
+                    
+                    # Force refresh the call's channels to include the newly created channel
+                    call.invalidate_cache(['channels'])
+                    test_channel = call.channels.filtered(lambda c: c.id == recipient_channel.id)
+                    logger.info(f"STRATEGY 1B: Channel verification - found in call.channels: {bool(test_channel)}")
                 else:
                     logger.warning(f"STRATEGY 1B FAILED: Could not find PBX user for {transfer_target_user.login}")
+            else:
+                logger.warning(f"STRATEGY 1B FAILED: No transferred_users found in call {call.id}")
             
             if not recipient_channel:
                 # STRATEGY 2: Find the most recent channel that's NOT the transfer initiator
