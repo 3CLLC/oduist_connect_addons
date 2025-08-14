@@ -834,9 +834,6 @@ class Call(models.Model):
             logger.info(f"Creating transfer channel with data: {channel_data}")
             recipient_channel = self.env['connect.channel'].create(channel_data)
             logger.info(f"SUCCESS: Created missing transfer channel {recipient_channel.id} for {target_user.login}")
-            
-            # Force refresh the call's channels to include the newly created channel
-            call.invalidate_cache(['channels'])
             return recipient_channel
             
         except Exception as e:
