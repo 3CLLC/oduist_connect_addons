@@ -128,8 +128,8 @@ class Channel(models.Model):
             channel.write(data)
             debug(self, 'Channel %s updated.' % channel.id)
             
-            # Handle failed outgoing call transfer targets
-            self._handle_failed_outgoing_transfer(channel, params)
+            # Note: Outgoing transfer failures now handled by direct extension redirect
+            # No longer need complex failure detection logic
         # Channel not found by sid, create it.
         else:
             logger.info(f"CREATING NEW CHANNEL for SID {params['CallSid']}")

@@ -431,10 +431,10 @@ class CallForwardHandler(models.TransientModel):
             
             # Choose transfer method based on call type
             if is_outgoing_call and transfer_type == 'blind':
-                logger.info('=== USING CONFERENCE BRIDGE FOR OUTGOING CALL ===')
-                # Use conference approach targeting the external call leg
-                result = self._execute_outgoing_conference_transfer(client, target_call_sid, user, call)
-                logger.info(f'Conference transfer result: {result}')
+                logger.info('=== USING DIRECT EXTENSION REDIRECT FOR OUTGOING CALL ===')
+                # Use direct extension redirect - simpler and more reliable
+                result = self._execute_outgoing_extension_redirect(client, target_call_sid, user, call)
+                logger.info(f'Extension redirect result: {result}')
                 return result
             else:
                 logger.info('=== USING TWIML TRANSFER METHOD ===')
@@ -535,17 +535,17 @@ class CallForwardHandler(models.TransientModel):
         
         return twiml_output
 
-    def _execute_outgoing_conference_transfer(self, client, call_sid, user, call):
+    def _execute_outgoing_extension_redirect(self, client, call_sid, user, call):
         """
-        Execute conference transfer for outgoing calls by moving the external call leg to conference
-        This preserves the external connection by working with the existing call structure
+        Execute outgoing call transfer by redirecting external caller directly to target's extension.
+        This is simpler and provides better UX than conference transfers.
         """
         try:
-            logger.info(f'=== EXECUTING OUTGOING CONFERENCE TRANSFER ===')
+            logger.info(f'=== EXECUTING OUTGOING EXTENSION REDIRECT ===')
             logger.info(f'Call SID: {call_sid}')
-            logger.info(f'Transfer to user: {user.name} (URI: {user.uri})')
+            logger.info(f'Transfer to user: {user.name} (Extension: {user.exten.number})')
             
-            # Step 1: Get the external call leg from transfer context (fast lookup)
+            # Step 1: Get the external call leg from transfer context
             logger.info(f'=== GETTING EXTERNAL CALL LEG FROM CONTEXT ===')
             logger.info(f'Call ID: {call.id}, Direction: {call.direction}')
             
@@ -558,118 +558,96 @@ class CallForwardHandler(models.TransientModel):
                 logger.error('This indicates the outbound-dial channel was not properly stored during call setup')
                 return False
             
-            # Step 2: Create a conference to bridge the calls
-            import uuid
-            conference_name = f'outgoing-xfer-{call_sid[-8:]}-{int(__import__("time").time())}'
-            logger.info(f'Conference name: {conference_name}')
+            # Step 2: Redirect the external caller directly to the target's extension
+            logger.info(f'=== REDIRECTING EXTERNAL CALLER TO EXTENSION ===')
             
-            # Step 3: Move the EXTERNAL call leg to conference (preserves external party connection)
-            logger.info(f'=== MOVING EXTERNAL CALL TO CONFERENCE ===')
-            logger.info(f'Updating external call {external_call_sid} with conference TwiML')
-            
-            external_conference_response = VoiceResponse()
-            external_conference_response.say('Please hold while we transfer your call.')
-            
-            dial = Dial()
-            dial.conference(
-                conference_name,
-                startConferenceOnEnter=True,
-                endConferenceOnExit=False,  # Don't end when external party leaves
-                muted=False
-            )
-            external_conference_response.append(dial)
-            
-            # Update the EXTERNAL call to join the conference
-            external_result = client.calls(external_call_sid).update(twiml=str(external_conference_response))
-            logger.info(f'External call moved to conference: {external_result.status}')
-            
-            # Step 4: Create a new call to the transfer target to join the same conference
-            logger.info(f'=== CREATING TRANSFER TARGET CALL ===')
-            
-            # Get caller ID for the transfer target call
-            external_number = self._get_original_caller_for_transfer(call)
-            if not external_number:
-                external_number = call.called or '+15551234567'  # Fallback
-            logger.info(f'Using external caller ID: {external_number}')
-            
-            # Get webhook URL for status callbacks
             api_url = self.env['connect.settings'].sudo().get_param('api_url')
-            status_callback_url = urljoin(api_url, 'twilio/webhook/callstatus')
+            extension_url = urljoin(api_url, f'connect/{user.exten.number}')
             
-            # Create TwiML for the target user to join conference immediately
-            target_response = VoiceResponse()
-            target_response.say('You have an incoming transferred call.')
+            logger.info(f'Redirecting external call {external_call_sid} to extension {user.exten.number}')
+            logger.info(f'Extension URL: {extension_url}')
             
-            target_dial = Dial(
-                timeout=30  # Ring for 30 seconds before giving up
-            )
-            target_dial.conference(
-                conference_name,
-                startConferenceOnEnter=True,
-                endConferenceOnExit=True  # End conference when target leaves
-            )
-            target_response.append(target_dial)
-            
-            # Create the call to the target with external caller ID and action callback
-            target_call = client.calls.create(
-                to=f'client:{user.uri}',
-                from_=external_number,  # This shows external caller ID to Patrick
-                twiml=str(target_response),
-                status_callback=status_callback_url,
-                status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
-                status_callback_method='POST'
+            # Update the external call to redirect to the extension
+            redirect_result = client.calls(external_call_sid).update(
+                url=extension_url, 
+                method='GET'
             )
             
-            logger.info(f'Transfer target call created: {target_call.sid}')
-            logger.info(f'Target will see caller ID: {external_number}')
+            logger.info(f'External call redirected: {redirect_result.status}')
             
-            # Create channel record for the transfer target call
-            self._create_transfer_target_channel(call, target_call.sid, user)
+            # Step 3: Complete the original caller (Jason) - they should be disconnected
+            logger.info(f'=== DISCONNECTING ORIGINAL CALLER ===')
+            logger.info(f'Hanging up original caller: {call_sid}')
             
-            # Step 5: Original caller will be automatically disconnected when conference starts
-            # No need to update their call - Twilio handles this automatically
-            logger.info(f'=== ORIGINAL CALLER WILL BE DISCONNECTED AUTOMATICALLY ===')
-            logger.info(f'Original caller will be disconnected when the conference bridge completes the transfer')
+            hangup_response = VoiceResponse()
+            hangup_response.hangup()
             
-            logger.info(f'=== CONFERENCE TRANSFER COMPLETE ===')
-            logger.info(f'Conference: {conference_name}')
-            logger.info(f'External call in conference: {external_call_sid}')
-            logger.info(f'Transfer target call created: {target_call.sid}')
-            logger.info(f'Original caller will be automatically released: {call_sid}')
+            # Update the original caller's call to hang up
+            original_result = client.calls(call_sid).update(twiml=str(hangup_response))
+            logger.info(f'Original caller disconnected: {original_result.status}')
+            
+            logger.info(f'=== EXTENSION REDIRECT COMPLETE ===')
+            logger.info(f'External party will ring {user.name} directly at extension {user.exten.number}')
+            logger.info(f'If no answer, external party will reach voicemail automatically')
+            logger.info(f'Missed call notifications will be sent to {user.name}')
             
             return True
             
         except Exception as e:
-            logger.error(f'Conference transfer failed: {e}', exc_info=True)
+            logger.error(f'Extension redirect failed: {e}', exc_info=True)
             return False
 
-    def _execute_outgoing_blind_transfer(self, client, call_sid, user, call):
+    def _get_original_caller_for_transfer(self, call):
         """
-        Execute blind transfer for outgoing calls using Twilio's conference bridge approach
-        This preserves the external connection by creating a 3-way bridge instead of replacing TwiML
+        Extract the original external caller information for outgoing call transfers
+        This ensures the transfer recipient sees the external caller, not the internal user
         """
         try:
-            logger.info(f'=== EXECUTING OUTGOING CALL BLIND TRANSFER ===')
-            logger.info(f'Call SID: {call_sid}')
-            logger.info(f'Transfer to user: {user.name} (URI: {user.uri})')
+            if not call or call.direction != 'outgoing':
+                logger.info('Not an outgoing call, no original caller to extract')
+                return None
             
-            # Get original external caller information for proper caller ID
-            original_caller = self._get_original_caller_for_transfer(call)
+            # For outgoing calls, the external party info should be in the called field or channels
+            if call.called and call.called.startswith('+'):
+                logger.info(f'Found original caller from call.called: {call.called}')
+                return call.called
             
-            # For outgoing calls, we need to find and move the EXTERNAL call leg to conference
-            # The current call_sid is the parent (internal), we need the child (external)
+            # Look for external number in channels
+            for channel in call.channels:
+                if channel.technical_direction == 'outbound-dial' and channel.called and channel.called.startswith('+'):
+                    logger.info(f'Found original caller from outbound-dial channel: {channel.called}')
+                    return channel.called
             
-            # Step 1: Find the external call leg (outbound-dial direction) with retry logic
-            logger.info(f'=== FINDING EXTERNAL CALL LEG FOR TRANSFER ===')
-            logger.info(f'Call ID: {call.id}, Direction: {call.direction}')
+            logger.warning('Could not extract original caller from outgoing call')
+            return None
             
-            external_call_sid = None
-            max_retries = 3
-            retry_delay = 0.5  # seconds
-            
-            for attempt in range(max_retries):
-                # Refresh call record to get latest channels by re-browsing
-                call = self.env['connect.call'].browse(call.id)
+        except Exception as e:
+            logger.error(f'Error extracting original caller: {e}')
+            return None
+
+    def _log_transfer_attempt(self, call_id, phone_number, transfer_type, session_id):
+        """Log transfer attempt for debugging and tracking"""
+        try:
+            log_message = f'{transfer_type.capitalize()} transfer to {phone_number} for session {session_id}'
+            if call_id:
+                log_message += f' (Call ID: {call_id})'
+            logger.info(f'Transfer logged: {log_message}')
+        except Exception as e:
+            logger.warning(f'Could not log transfer attempt: {e}')
+
+    def _create_attended_transfer_twiml(self, user, target_call_sid):
+        """Create TwiML for attended transfer"""
+        response = VoiceResponse()
+        response.say('Setting up consultation call.')
+        
+        dial = Dial(timeout=30)
+        from twilio.twiml.voice_response import Client
+        client_elem = Client()
+        client_elem.identity(user.uri)
+        dial.append(client_elem)
+        response.append(dial)
+        
+        return str(response)
                 logger.info(f'Attempt {attempt + 1}: Call has {len(call.channels)} channels')
                 
                 # Also search for channels by ParentCallSid (more reliable than call.channels)

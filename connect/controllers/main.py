@@ -62,7 +62,21 @@ class ConnectPlusController(http.Controller):
         else:
             raise UserError("Failed to download the media. Status code: %s" % response.status_code)
 
-    @http.route('/connect/<string:uid>/', methods=['GET', 'POST'], type='http', auth='public', csrf=False)
+    @http.route('/connect/<string:extension_number>', methods=['GET', 'POST'], type='http', auth='public', csrf=False)
+    def extension_handler(self, extension_number, **kw):
+        """Handle extension calls via direct URL"""
+        logger.info(f'Extension handler called for extension {extension_number}')
+        logger.info(f'Parameters: {kw}')
+        
+        # Find the extension
+        exten = http.request.env['connect.exten'].sudo().search([('number', '=', extension_number)])
+        if not exten:
+            return '<Response><Say>Extension not found. Goodbye!</Say></Response>'
+        
+        # Render the extension with the webhook parameters
+        return exten.render(request=kw, params=kw)
+
+    @http.route('/connect/health/<string:uid>/', methods=['GET', 'POST'], type='http', auth='public', csrf=False)
     def health_check(self, uid):
         instance_uid = http.request.env['connect.settings'].sudo().get_param('instance_uid')
         if uid == instance_uid:
