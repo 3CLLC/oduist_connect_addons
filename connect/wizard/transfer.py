@@ -555,11 +555,18 @@ class CallForwardHandler(models.TransientModel):
             )
             target_response.append(target_dial)
             
+            # Get webhook URL for status callbacks
+            api_url = self.env['connect.settings'].sudo().get_param('api_url')
+            status_callback_url = urljoin(api_url, 'twilio/webhook/callstatus')
+            
             # Create the call to the target
             target_call = client.calls.create(
                 to=f'client:{user.uri}',
                 from_=caller_id,
-                twiml=str(target_response)
+                twiml=str(target_response),
+                status_callback=status_callback_url,
+                status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                status_callback_method='POST'
             )
             
             # Create a channel record for the transfer target call so completion can be tracked
@@ -704,11 +711,18 @@ class CallForwardHandler(models.TransientModel):
             )
             target_response.append(target_dial)
             
+            # Get webhook URL for status callbacks
+            api_url = self.env['connect.settings'].sudo().get_param('api_url')
+            status_callback_url = urljoin(api_url, 'twilio/webhook/callstatus')
+            
             # Create the call to the target
             call = client.calls.create(
                 to=f'client:{user.uri}',
                 from_=caller_id,
-                twiml=str(target_response)
+                twiml=str(target_response),
+                status_callback=status_callback_url,
+                status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                status_callback_method='POST'
             )
             
             logger.info(f'Created conference call to target: {call.sid}')
