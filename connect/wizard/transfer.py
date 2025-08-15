@@ -499,34 +499,45 @@ class CallForwardHandler(models.TransientModel):
             # Get original external caller information for proper caller ID
             original_caller = self._get_original_caller_for_transfer(call)
             
-            # For outgoing calls, we need to create a bridge between:
-            # 1. The existing external call (already connected)
-            # 2. The target internal extension
+            # For outgoing calls, we need to find and move the EXTERNAL call leg to conference
+            # The current call_sid is the parent (internal), we need the child (external)
             
-            # Step 1: Create a conference to bridge the calls
+            # Step 1: Find the external call leg (outbound-dial direction)
+            external_call_sid = None
+            for channel in call.channels:
+                if channel.technical_direction == 'outbound-dial':
+                    external_call_sid = channel.sid
+                    logger.info(f'Found external call leg: {external_call_sid}')
+                    break
+            
+            if not external_call_sid:
+                logger.error('Could not find external call leg for outgoing transfer')
+                return False
+            
+            # Step 2: Create a conference to bridge the calls
             import uuid
             conference_name = f'outgoing-transfer-{call_sid[-8:]}'
             
-            # Step 2: Move current call to conference (this keeps external party connected)
-            logger.info(f'Moving current call {call_sid} to conference {conference_name}')
+            # Step 3: Move the EXTERNAL call leg to conference (this keeps external party connected)
+            logger.info(f'Moving external call {external_call_sid} to conference {conference_name}')
             
             bridge_response = VoiceResponse()
-            bridge_response.say('Transferring your call now.')
+            bridge_response.say('Please hold, transferring your call.')
             
             dial = Dial()
             dial.conference(
                 conference_name,
                 startConferenceOnEnter=True,
-                endConferenceOnExit=False,  # Don't end when current caller leaves
+                endConferenceOnExit=False,  # Don't end when external caller leaves
                 muted=False
             )
             bridge_response.append(dial)
             
-            # Update the current call to join the conference
-            result = client.calls(call_sid).update(twiml=str(bridge_response))
-            logger.info(f'Moved call {call_sid} to conference: {result}')
+            # Update the EXTERNAL call to join the conference
+            result = client.calls(external_call_sid).update(twiml=str(bridge_response))
+            logger.info(f'Moved external call {external_call_sid} to conference: {result}')
             
-            # Step 3: Create a new call to the target extension to join the same conference
+            # Step 4: Create a new call to the target extension to join the same conference
             logger.info(f'Creating new call to target extension {user.uri}')
             
             # Get caller ID for the new call - use the external number
@@ -553,7 +564,7 @@ class CallForwardHandler(models.TransientModel):
             
             logger.info(f'OUTGOING BLIND TRANSFER: Successfully created bridge')
             logger.info(f'Conference: {conference_name}')
-            logger.info(f'Original call moved to conference: {call_sid}')
+            logger.info(f'External call moved to conference: {external_call_sid}')
             logger.info(f'Target call created: {target_call.sid}')
             logger.info(f'Original caller ID preserved: {original_caller}')
             
