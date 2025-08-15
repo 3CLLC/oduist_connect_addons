@@ -575,16 +575,27 @@ class CallForwardHandler(models.TransientModel):
             
             logger.info(f'External call redirected: {redirect_result.status}')
             
-            # Step 3: Complete the original caller (Jason) - they should be disconnected
+            # Step 3: Check if original caller is still active before hanging up
             logger.info(f'=== DISCONNECTING ORIGINAL CALLER ===')
-            logger.info(f'Hanging up original caller: {call_sid}')
+            logger.info(f'Checking status of original caller: {call_sid}')
             
-            hangup_response = VoiceResponse()
-            hangup_response.hangup()
-            
-            # Update the original caller's call to hang up
-            original_result = client.calls(call_sid).update(twiml=str(hangup_response))
-            logger.info(f'Original caller disconnected: {original_result.status}')
+            # Check if the call is still active
+            try:
+                original_call_status = client.calls(call_sid).fetch()
+                logger.info(f'Original caller status: {original_call_status.status}')
+                
+                if original_call_status.status in ['in-progress', 'ringing']:
+                    hangup_response = VoiceResponse()
+                    hangup_response.hangup()
+                    
+                    # Update the original caller's call to hang up
+                    original_result = client.calls(call_sid).update(twiml=str(hangup_response))
+                    logger.info(f'Original caller disconnected: {original_result.status}')
+                else:
+                    logger.info(f'Original caller already ended ({original_call_status.status}), no need to hang up')
+                    
+            except Exception as e:
+                logger.warning(f'Could not check/update original caller status: {e}')
             
             logger.info(f'=== EXTENSION REDIRECT COMPLETE ===')
             logger.info(f'External party will ring {user.name} directly at extension {user.exten.number}')

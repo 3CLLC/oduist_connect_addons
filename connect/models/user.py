@@ -218,6 +218,12 @@ class User(models.Model):
 
     def render(self, request={}, params={}):
         self.ensure_one()
+        
+        # Debug logging for transfer detection
+        logger.info(f'=== USER RENDER CALLED FOR {self.name} ===')
+        logger.info(f'Request params: Direction={request.get("Direction")}, CallSid={request.get("CallSid")}')
+        logger.info(f'Params: Direction={params.get("Direction")}, ParentCallSid={params.get("ParentCallSid")}')
+        
         channel = self.env['connect.channel'].search([('sid', '=', request.get('CallSid'))])
         call = channel.call
         # Check callerid for client calls
@@ -292,8 +298,17 @@ class User(models.Model):
         elif self.ring_second == 'client' and self.client_enabled and dial_client:
             response.append(dial_client)
         
-        # Voicemail
-        if self.voicemail_enabled:
+        # Voicemail - but NOT for redirected transfer calls
+        # This specifically targets external callers redirected from outgoing call transfers
+        is_transfer_redirect = (
+            params.get('Direction') == 'outbound-dial' and 
+            params.get('ParentCallSid') and
+            request.get('Direction') == 'outbound-dial' and
+            call and call.direction == 'outgoing' and
+            call.transferred_users  # Only if there are actual transfers
+        )
+        
+        if self.voicemail_enabled and not is_transfer_redirect:
             # The call voicemail
             voicemail_record_status_url = urljoin(api_url, 'twilio/webhook/vm_recordingstatus')
             response.pause(length=1)
@@ -303,6 +318,8 @@ class User(models.Model):
                 finishOnKey='#',
                 playBeep=True,
                 recordingStatusCallback=voicemail_record_status_url)
+        elif is_transfer_redirect:
+            logger.info(f'Skipping voicemail for transfer redirect call (SID: {request.get("CallSid")})')
         
         debug(self, pretty_xml(response.to_xml()))
         return response.to_xml()
