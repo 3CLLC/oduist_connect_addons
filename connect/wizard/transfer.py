@@ -429,32 +429,26 @@ class CallForwardHandler(models.TransientModel):
                 else:
                     logger.info('No connect.user found for current Odoo user')
             
-            # Use different transfer approaches for outgoing vs incoming calls
-            if is_outgoing_call and transfer_type == 'blind':
-                # OUTGOING CALL BLIND TRANSFER: Use direct transfer to preserve external connection
-                logger.info('=== OUTGOING CALL TRANSFER: Using direct transfer method ===')
-                result = self._execute_outgoing_blind_transfer(client, target_call_sid, user, call)
+            # Use TwiML approach for all transfers (simpler and more reliable)
+            logger.info('=== USING TWIML TRANSFER METHOD ===')
+            
+            # Create different TwiML based on transfer type
+            if transfer_type == 'blind':
+                twiml_str = self._create_blind_transfer_twiml(user, call if is_outgoing_call else None)
+                logger.info('Created BLIND transfer TwiML (immediate transfer)')
             else:
-                # INCOMING CALL OR ATTENDED TRANSFER: Use existing TwiML approach
-                logger.info('=== INCOMING CALL OR ATTENDED TRANSFER: Using TwiML method ===')
-                
-                # Create different TwiML based on transfer type
-                if transfer_type == 'blind':
-                    twiml_str = self._create_blind_transfer_twiml(user, call if is_outgoing_call else None)
-                    logger.info('Created BLIND transfer TwiML (immediate transfer)')
-                else:
-                    twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
-                    logger.info('Created ATTENDED transfer TwiML (conference-based)')
-                
-                logger.info(f'=== GENERATED TWIML ===')
-                logger.info(f'TwiML: {twiml_str}')
-                logger.info(f'TwiML Length: {len(twiml_str)} characters')
-                
-                # Update the CORRECT call (parent if exists, otherwise current)
-                logger.info('=== UPDATING CALL WITH TWIML ===')
-                logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
-                
-                result = client.calls(target_call_sid).update(twiml=twiml_str)
+                twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
+                logger.info('Created ATTENDED transfer TwiML (conference-based)')
+            
+            logger.info(f'=== GENERATED TWIML ===')
+            logger.info(f'TwiML: {twiml_str}')
+            logger.info(f'TwiML Length: {len(twiml_str)} characters')
+            
+            # Update the CORRECT call (parent if exists, otherwise current)
+            logger.info('=== UPDATING CALL WITH TWIML ===')
+            logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
+            
+            result = client.calls(target_call_sid).update(twiml=twiml_str)
             
             logger.info(f'=== CALL UPDATE RESULT ===')
             logger.info(f'Update result: {result}')
