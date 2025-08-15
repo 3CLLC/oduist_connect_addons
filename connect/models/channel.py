@@ -223,6 +223,17 @@ class Channel(models.Model):
             
             channel = self.with_context(tracking_disable=True).create(data)
             debug(self, 'Channel %s created.' % channel.id)
+            
+            # Store external call leg for outgoing call transfers
+            if (params.get('Direction') == 'outbound-dial' and 
+                data.get('parent_channel') and 
+                params.get('CallSid')):
+                
+                parent_channel = self.browse(data['parent_channel'])
+                if parent_channel.call and parent_channel.call.direction == 'outgoing':
+                    # This is the external call leg for an outgoing call - store it for transfers
+                    parent_channel.call.store_external_call_leg(params['CallSid'])
+                    logger.info(f"STORED external call leg {params['CallSid']} for outgoing call {parent_channel.call.id}")
         return channel
 
     def transfer(self, to=None):

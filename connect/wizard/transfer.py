@@ -545,25 +545,17 @@ class CallForwardHandler(models.TransientModel):
             logger.info(f'Call SID: {call_sid}')
             logger.info(f'Transfer to user: {user.name} (URI: {user.uri})')
             
-            # Step 1: Find the external call leg (outbound-dial direction) 
-            logger.info(f'=== FINDING EXTERNAL CALL LEG ===')
+            # Step 1: Get the external call leg from transfer context (fast lookup)
+            logger.info(f'=== GETTING EXTERNAL CALL LEG FROM CONTEXT ===')
             logger.info(f'Call ID: {call.id}, Direction: {call.direction}')
             
-            external_call_sid = None
+            external_call_sid = call.get_external_call_leg()
             
-            # Look through all channels to find the external party connection
-            logger.info(f'Call has {len(call.channels)} channels:')
-            for i, channel in enumerate(call.channels):
-                logger.info(f'  Channel {i+1}: SID={channel.sid}, direction={channel.technical_direction}, status={channel.status}')
-                
-                if channel.technical_direction == 'outbound-dial' and channel.status in ['in-progress', 'ringing']:
-                    external_call_sid = channel.sid
-                    logger.info(f'✓ Found active external call leg: {external_call_sid}')
-                    break
-            
-            if not external_call_sid:
-                logger.error('❌ Could not find active external call leg for conference transfer')
-                logger.error('Available channels: ' + ', '.join([f'{ch.sid}:{ch.technical_direction}:{ch.status}' for ch in call.channels]))
+            if external_call_sid:
+                logger.info(f'✓ Retrieved external call leg from context: {external_call_sid}')
+            else:
+                logger.error('❌ No external call leg stored in transfer context')
+                logger.error('This indicates the outbound-dial channel was not properly stored during call setup')
                 return False
             
             # Step 2: Create a conference to bridge the calls

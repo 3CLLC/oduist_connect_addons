@@ -593,6 +593,35 @@ class Call(models.Model):
                 return user
         return None
 
+    def store_external_call_leg(self, external_call_sid):
+        """
+        Store external call leg SID for outgoing call transfers.
+        This provides quick access during transfers without database searches.
+        """
+        self.ensure_one()
+        if not external_call_sid:
+            return
+            
+        current_context = self.transfer_context or {}
+        current_context['_external_leg'] = external_call_sid
+        self.transfer_context = current_context
+        logger.info(f"Call {self.id}: Stored external call leg SID: {external_call_sid}")
+
+    def get_external_call_leg(self):
+        """
+        Get external call leg SID for outgoing call transfers.
+        Returns SID string or None if not found.
+        """
+        self.ensure_one()
+        if not self.transfer_context:
+            return None
+            
+        external_leg = self.transfer_context.get('_external_leg')
+        if external_leg:
+            logger.info(f"Call {self.id}: Retrieved external call leg SID: {external_leg}")
+            return external_leg
+        return None
+
     def clear_transfer_context(self):
         """
         Clear temporary transfer context after call processing is complete.
