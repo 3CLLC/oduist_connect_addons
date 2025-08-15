@@ -488,8 +488,8 @@ class CallForwardHandler(models.TransientModel):
 
     def _execute_outgoing_blind_transfer(self, client, call_sid, user, call):
         """
-        Execute blind transfer for outgoing calls using Twilio's transfer approach
-        This preserves the external connection by transferring the call instead of replacing TwiML
+        Execute blind transfer for outgoing calls using Twilio's conference bridge approach
+        This preserves the external connection by creating a 3-way bridge instead of replacing TwiML
         """
         try:
             logger.info(f'=== EXECUTING OUTGOING CALL BLIND TRANSFER ===')
@@ -499,35 +499,63 @@ class CallForwardHandler(models.TransientModel):
             # Get original external caller information for proper caller ID
             original_caller = self._get_original_caller_for_transfer(call)
             
-            # Create a new outbound call to the target extension with proper caller ID
-            # This connects the external party to the internal extension
-            api_url = self.env['connect.settings'].sudo().get_param('api_url')
-            webhook_url = urljoin(api_url, 'twilio/webhook/callaction')
+            # For outgoing calls, we need to create a bridge between:
+            # 1. The existing external call (already connected)
+            # 2. The target internal extension
             
-            # Create TwiML to bridge the calls
-            response = VoiceResponse()
-            response.say('Transferring your call now.')
+            # Step 1: Create a conference to bridge the calls
+            import uuid
+            conference_name = f'outgoing-transfer-{call_sid[-8:]}'
             
-            dial = Dial(
-                timeout=30,
-                action=webhook_url,
-                method='POST',
-                callerId=original_caller if original_caller else None
+            # Step 2: Move current call to conference (this keeps external party connected)
+            logger.info(f'Moving current call {call_sid} to conference {conference_name}')
+            
+            bridge_response = VoiceResponse()
+            bridge_response.say('Transferring your call now.')
+            
+            dial = Dial()
+            dial.conference(
+                conference_name,
+                startConferenceOnEnter=True,
+                endConferenceOnExit=False,  # Don't end when current caller leaves
+                muted=False
+            )
+            bridge_response.append(dial)
+            
+            # Update the current call to join the conference
+            result = client.calls(call_sid).update(twiml=str(bridge_response))
+            logger.info(f'Moved call {call_sid} to conference: {result}')
+            
+            # Step 3: Create a new call to the target extension to join the same conference
+            logger.info(f'Creating new call to target extension {user.uri}')
+            
+            # Get caller ID for the new call - use the external number
+            caller_id = original_caller or self._get_caller_id_for_transfer('')
+            
+            # Create TwiML for the target user to join conference immediately
+            target_response = VoiceResponse()
+            target_response.say('You have an incoming transfer.')
+            
+            target_dial = Dial()
+            target_dial.conference(
+                conference_name,
+                startConferenceOnEnter=True,
+                endConferenceOnExit=True  # End conference when target leaves
+            )
+            target_response.append(target_dial)
+            
+            # Create the call to the target
+            target_call = client.calls.create(
+                to=f'client:{user.uri}',
+                from_=caller_id,
+                twiml=str(target_response)
             )
             
-            from twilio.twiml.voice_response import Client
-            client_elem = Client()
-            client_elem.identity(user.uri)
-            dial.append(client_elem)
-            response.append(dial)
-            
-            # Update the call with the transfer TwiML
-            result = client.calls(call_sid).update(twiml=str(response))
-            
-            logger.info(f'OUTGOING BLIND TRANSFER: Successfully updated call {call_sid}')
-            logger.info(f'Transfer target: {user.uri}')
+            logger.info(f'OUTGOING BLIND TRANSFER: Successfully created bridge')
+            logger.info(f'Conference: {conference_name}')
+            logger.info(f'Original call moved to conference: {call_sid}')
+            logger.info(f'Target call created: {target_call.sid}')
             logger.info(f'Original caller ID preserved: {original_caller}')
-            logger.info(f'Update result: {result}')
             
             return result
             
@@ -548,7 +576,7 @@ class CallForwardHandler(models.TransientModel):
             # For outgoing calls, the external party info should be in the called field or channels
             # Look for the external number from the child channel (outbound-dial direction)
             outbound_channel = None
-            for channel in call.channel_ids:
+            for channel in call.channels:  # Fixed: use 'channels' not 'channel_ids'
                 if channel.technical_direction == 'outbound-dial':
                     outbound_channel = channel
                     break
