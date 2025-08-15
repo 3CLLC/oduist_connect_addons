@@ -429,38 +429,45 @@ class CallForwardHandler(models.TransientModel):
                 else:
                     logger.info('No connect.user found for current Odoo user')
             
-            # Use TwiML approach for all transfers (simpler and more reliable)
-            logger.info('=== USING TWIML TRANSFER METHOD ===')
-            
-            # Create different TwiML based on transfer type
-            if transfer_type == 'blind':
-                twiml_str = self._create_blind_transfer_twiml(user, call if is_outgoing_call else None)
-                logger.info('Created BLIND transfer TwiML (immediate transfer)')
+            # Choose transfer method based on call type
+            if is_outgoing_call and transfer_type == 'blind':
+                logger.info('=== USING BRIDGE TRANSFER METHOD FOR OUTGOING CALL ===')
+                # Use bridge approach to preserve external connection
+                result = self._execute_outgoing_bridge_transfer(client, target_call_sid, user, call)
+                logger.info(f'Bridge transfer result: {result}')
+                return result
             else:
-                twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
-                logger.info('Created ATTENDED transfer TwiML (conference-based)')
-            
-            logger.info(f'=== GENERATED TWIML ===')
-            logger.info(f'TwiML: {twiml_str}')
-            logger.info(f'TwiML Length: {len(twiml_str)} characters')
-            
-            # Update the CORRECT call (parent if exists, otherwise current)
-            logger.info('=== UPDATING CALL WITH TWIML ===')
-            logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
-            
-            result = client.calls(target_call_sid).update(twiml=twiml_str)
-            
-            logger.info(f'=== CALL UPDATE RESULT ===')
-            logger.info(f'Update result: {result}')
-            
-            # For attended transfer, we need to handle the consultation phase
-            if transfer_type == 'attended':
-                # The original recipient (you) should stay connected until you hang up
-                # The child call should continue until you decide to complete the transfer
-                logger.info('=== ATTENDED TRANSFER: Keeping original recipient connected ===')
+                logger.info('=== USING TWIML TRANSFER METHOD ===')
                 
-            logger.info(f'=== TRANSFER COMPLETE ===')
-            return True
+                # Create different TwiML based on transfer type
+                if transfer_type == 'blind':
+                    twiml_str = self._create_blind_transfer_twiml(user, call if is_outgoing_call else None)
+                    logger.info('Created BLIND transfer TwiML (immediate transfer)')
+                else:
+                    twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
+                    logger.info('Created ATTENDED transfer TwiML (conference-based)')
+                
+                logger.info(f'=== GENERATED TWIML ===')
+                logger.info(f'TwiML: {twiml_str}')
+                logger.info(f'TwiML Length: {len(twiml_str)} characters')
+                
+                # Update the CORRECT call (parent if exists, otherwise current)
+                logger.info('=== UPDATING CALL WITH TWIML ===')
+                logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
+                
+                result = client.calls(target_call_sid).update(twiml=twiml_str)
+                
+                logger.info(f'=== CALL UPDATE RESULT ===')
+                logger.info(f'Update result: {result}')
+                
+                # For attended transfer, we need to handle the consultation phase
+                if transfer_type == 'attended':
+                    # The original recipient (you) should stay connected until you hang up
+                    # The child call should continue until you decide to complete the transfer
+                    logger.info('=== ATTENDED TRANSFER: Keeping original recipient connected ===')
+                    
+                logger.info(f'=== TRANSFER COMPLETE ===')
+                return True
             
         except Exception as e:
             logger.error(f'=== TRANSFER FAILED WITH EXCEPTION ===')
@@ -469,13 +476,25 @@ class CallForwardHandler(models.TransientModel):
 
     def _create_blind_transfer_twiml(self, user, outgoing_call=None):
         """
-        Create TwiML for blind (immediate) transfer using action-based continuation
-        This approach maintains external connection by handling what happens after transfer completes
+        For outgoing calls, use bridge transfer approach instead of TwiML modification
+        This prevents external party disconnection by not modifying the original call flow
         """
         logger.info(f'=== CREATING BLIND TRANSFER TWIML ===')
         logger.info(f'Target user: {user.name} (URI: {user.uri})')
         logger.info(f'Outgoing call provided: {"Yes" if outgoing_call else "No"}')
         
+        if outgoing_call and outgoing_call.direction == 'outgoing':
+            logger.info(f'=== OUTGOING CALL DETECTED - USING BRIDGE TRANSFER ===')
+            # For outgoing calls, return minimal TwiML and handle via bridge method
+            response = VoiceResponse()
+            response.say('Transfer initiated. Please stand by.')
+            
+            twiml_output = str(response)
+            logger.info(f'Generated minimal TwiML for bridge transfer: {twiml_output}')
+            return twiml_output
+        
+        # For incoming calls, use the standard TwiML approach
+        logger.info(f'=== INCOMING CALL - USING STANDARD TWIML TRANSFER ===')
         response = VoiceResponse()
         response.say('Transferring your call now.')
         
@@ -495,20 +514,6 @@ class CallForwardHandler(models.TransientModel):
         )
         logger.info(f'Created Dial with 30s timeout and action URL')
         
-        # For outgoing calls, preserve original caller information in callerId
-        original_caller = None
-        if outgoing_call and outgoing_call.direction == 'outgoing':
-            logger.info(f'Processing outgoing call transfer - extracting original caller')
-            # Get the original external caller info from the call
-            original_caller = self._get_original_caller_for_transfer(outgoing_call)
-            if original_caller:
-                dial.callerId = original_caller
-                logger.info(f'OUTGOING TRANSFER: Set callerId to original external caller: {original_caller}')
-            else:
-                logger.warning(f'OUTGOING TRANSFER: Could not determine original caller for callerId')
-        else:
-            logger.info(f'Not an outgoing call transfer - no special callerId handling needed')
-        
         from twilio.twiml.voice_response import Client
         client_elem = Client()
         client_elem.identity(user.uri)
@@ -519,7 +524,6 @@ class CallForwardHandler(models.TransientModel):
         logger.info(f'Appended dial element to response')
         
         # Critical: Add continuation TwiML that executes AFTER the dial completes
-        # This keeps the external party connected if the internal recipient doesn't answer
         response.say('Call could not be completed. Please try again.')
         response.hangup()
         logger.info(f'Added fallback TwiML for cases where transfer fails')
@@ -530,6 +534,77 @@ class CallForwardHandler(models.TransientModel):
         logger.info(f'=== END TWIML GENERATION ===')
         
         return twiml_output
+
+    def _execute_outgoing_bridge_transfer(self, client, call_sid, user, call):
+        """
+        Execute bridge transfer for outgoing calls without modifying original call flow
+        This preserves the external connection by creating a separate bridge call
+        """
+        try:
+            logger.info(f'=== EXECUTING OUTGOING BRIDGE TRANSFER ===')
+            logger.info(f'Call SID: {call_sid}')
+            logger.info(f'Transfer to user: {user.name} (URI: {user.uri})')
+            
+            # Get the external number from the call for proper caller ID
+            external_number = self._get_original_caller_for_transfer(call)
+            if not external_number:
+                external_number = call.called or '+15551234567'  # Fallback
+            logger.info(f'External number for caller ID: {external_number}')
+            
+            # Create a direct call to the transfer target with external caller ID
+            logger.info(f'Creating direct call to transfer target')
+            
+            # Create TwiML that immediately connects to the external party
+            bridge_response = VoiceResponse()
+            bridge_response.say('You have an incoming transferred call.')
+            
+            # Dial the external number directly - this creates the bridge
+            dial = Dial(timeout=30)
+            dial.number(external_number)
+            bridge_response.append(dial)
+            
+            # Get webhook URLs
+            api_url = self.env['connect.settings'].sudo().get_param('api_url')
+            status_callback_url = urljoin(api_url, 'twilio/webhook/callstatus')
+            
+            # Get appropriate caller ID for the bridge call
+            caller_id = self._get_caller_id_for_transfer(call_sid)
+            
+            # Create the bridge call to the transfer target
+            bridge_call = client.calls.create(
+                to=f'client:{user.uri}',
+                from_=caller_id,
+                twiml=str(bridge_response),
+                status_callback=status_callback_url,
+                status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
+                status_callback_method='POST'
+            )
+            
+            logger.info(f'Bridge call created: {bridge_call.sid}')
+            logger.info(f'Bridge call connects: {user.uri} -> {external_number}')
+            
+            # Create channel record for tracking
+            self._create_transfer_target_channel(call, bridge_call.sid, user)
+            
+            # Update the original call with a simple hold message
+            # This keeps Jason connected while the bridge is established
+            hold_response = VoiceResponse()
+            hold_response.say('Transfer in progress. Please hold.')
+            hold_response.pause(length=60)  # Keep Jason on hold briefly
+            hold_response.hangup()  # Then release Jason
+            
+            # Update the original call with hold message
+            result = client.calls(call_sid).update(twiml=str(hold_response))
+            
+            logger.info(f'=== BRIDGE TRANSFER SETUP COMPLETE ===')
+            logger.info(f'Original call updated with hold message: {result}')
+            logger.info(f'Bridge call created: {bridge_call.sid}')
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f'Bridge transfer failed: {e}', exc_info=True)
+            return False
 
     def _execute_outgoing_blind_transfer(self, client, call_sid, user, call):
         """
