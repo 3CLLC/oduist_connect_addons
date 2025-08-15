@@ -677,10 +677,12 @@ class Call(models.Model):
         elif channel.parent_channel and channel.parent_channel.call:
             # Secondary channel, assign the call from the parent.
             channel.call = channel.parent_channel.call
-            if channel.caller_pbx_user and channel.parent_channel.called_pbx_user:
-                channel.call.direction = 'internal'
-            elif channel.called_pbx_user and channel.parent_channel.caller_pbx_user:
-                channel.call.direction = 'internal'
+            # Only set to internal for true internal calls, not outgoing calls with transfers
+            if channel.call.direction != 'outgoing':
+                if channel.caller_pbx_user and channel.parent_channel.called_pbx_user:
+                    channel.call.direction = 'internal'
+                elif channel.called_pbx_user and channel.parent_channel.caller_pbx_user:
+                    channel.call.direction = 'internal'
                 
         # Set called from 2nd call leg for click2call external calls.
         if channel.parent_channel and channel.parent_channel.technical_direction == 'outbound-api':
