@@ -431,10 +431,10 @@ class CallForwardHandler(models.TransientModel):
             
             # Choose transfer method based on call type
             if is_outgoing_call and transfer_type == 'blind':
-                logger.info('=== USING BRIDGE TRANSFER METHOD FOR OUTGOING CALL ===')
-                # Use bridge approach to preserve external connection
-                result = self._execute_outgoing_bridge_transfer(client, target_call_sid, user, call)
-                logger.info(f'Bridge transfer result: {result}')
+                logger.info('=== USING CONFERENCE BRIDGE FOR OUTGOING CALL ===')
+                # Use conference approach targeting the external call leg
+                result = self._execute_outgoing_conference_transfer(client, target_call_sid, user, call)
+                logger.info(f'Conference transfer result: {result}')
                 return result
             else:
                 logger.info('=== USING TWIML TRANSFER METHOD ===')
@@ -535,75 +535,124 @@ class CallForwardHandler(models.TransientModel):
         
         return twiml_output
 
-    def _execute_outgoing_bridge_transfer(self, client, call_sid, user, call):
+    def _execute_outgoing_conference_transfer(self, client, call_sid, user, call):
         """
-        Execute bridge transfer for outgoing calls without modifying original call flow
-        This preserves the external connection by creating a separate bridge call
+        Execute conference transfer for outgoing calls by moving the external call leg to conference
+        This preserves the external connection by working with the existing call structure
         """
         try:
-            logger.info(f'=== EXECUTING OUTGOING BRIDGE TRANSFER ===')
+            logger.info(f'=== EXECUTING OUTGOING CONFERENCE TRANSFER ===')
             logger.info(f'Call SID: {call_sid}')
             logger.info(f'Transfer to user: {user.name} (URI: {user.uri})')
             
-            # Get the external number from the call for proper caller ID
+            # Step 1: Find the external call leg (outbound-dial direction) 
+            logger.info(f'=== FINDING EXTERNAL CALL LEG ===')
+            logger.info(f'Call ID: {call.id}, Direction: {call.direction}')
+            
+            external_call_sid = None
+            
+            # Look through all channels to find the external party connection
+            logger.info(f'Call has {len(call.channels)} channels:')
+            for i, channel in enumerate(call.channels):
+                logger.info(f'  Channel {i+1}: SID={channel.sid}, direction={channel.technical_direction}, status={channel.status}')
+                
+                if channel.technical_direction == 'outbound-dial' and channel.status in ['in-progress', 'ringing']:
+                    external_call_sid = channel.sid
+                    logger.info(f'✓ Found active external call leg: {external_call_sid}')
+                    break
+            
+            if not external_call_sid:
+                logger.error('❌ Could not find active external call leg for conference transfer')
+                logger.error('Available channels: ' + ', '.join([f'{ch.sid}:{ch.technical_direction}:{ch.status}' for ch in call.channels]))
+                return False
+            
+            # Step 2: Create a conference to bridge the calls
+            import uuid
+            conference_name = f'outgoing-xfer-{call_sid[-8:]}-{int(__import__("time").time())}'
+            logger.info(f'Conference name: {conference_name}')
+            
+            # Step 3: Move the EXTERNAL call leg to conference (preserves external party connection)
+            logger.info(f'=== MOVING EXTERNAL CALL TO CONFERENCE ===')
+            logger.info(f'Updating external call {external_call_sid} with conference TwiML')
+            
+            external_conference_response = VoiceResponse()
+            external_conference_response.say('Please hold while we transfer your call.')
+            
+            dial = Dial()
+            dial.conference(
+                conference_name,
+                startConferenceOnEnter=True,
+                endConferenceOnExit=False,  # Don't end when external party leaves
+                muted=False
+            )
+            external_conference_response.append(dial)
+            
+            # Update the EXTERNAL call to join the conference
+            external_result = client.calls(external_call_sid).update(twiml=str(external_conference_response))
+            logger.info(f'External call moved to conference: {external_result.status}')
+            
+            # Step 4: Create a new call to the transfer target to join the same conference
+            logger.info(f'=== CREATING TRANSFER TARGET CALL ===')
+            
+            # Get caller ID for the transfer target call
             external_number = self._get_original_caller_for_transfer(call)
             if not external_number:
                 external_number = call.called or '+15551234567'  # Fallback
-            logger.info(f'External number for caller ID: {external_number}')
+            logger.info(f'Using external caller ID: {external_number}')
             
-            # Create a direct call to the transfer target with external caller ID
-            logger.info(f'Creating direct call to transfer target')
+            # Create TwiML for the target user to join conference immediately
+            target_response = VoiceResponse()
+            target_response.say('You have an incoming transferred call.')
             
-            # Create TwiML that immediately connects to the external party
-            bridge_response = VoiceResponse()
-            bridge_response.say('You have an incoming transferred call.')
+            target_dial = Dial()
+            target_dial.conference(
+                conference_name,
+                startConferenceOnEnter=True,
+                endConferenceOnExit=True  # End conference when target leaves
+            )
+            target_response.append(target_dial)
             
-            # Dial the external number directly - this creates the bridge
-            dial = Dial(timeout=30)
-            dial.number(external_number)
-            bridge_response.append(dial)
-            
-            # Get webhook URLs
+            # Get webhook URL for status callbacks
             api_url = self.env['connect.settings'].sudo().get_param('api_url')
             status_callback_url = urljoin(api_url, 'twilio/webhook/callstatus')
             
-            # Get appropriate caller ID for the bridge call
-            caller_id = self._get_caller_id_for_transfer(call_sid)
-            
-            # Create the bridge call to the transfer target
-            bridge_call = client.calls.create(
+            # Create the call to the target with external caller ID
+            target_call = client.calls.create(
                 to=f'client:{user.uri}',
-                from_=caller_id,
-                twiml=str(bridge_response),
+                from_=external_number,  # This shows external caller ID to Patrick
+                twiml=str(target_response),
                 status_callback=status_callback_url,
                 status_callback_event=['initiated', 'ringing', 'answered', 'completed'],
                 status_callback_method='POST'
             )
             
-            logger.info(f'Bridge call created: {bridge_call.sid}')
-            logger.info(f'Bridge call connects: {user.uri} -> {external_number}')
+            logger.info(f'Transfer target call created: {target_call.sid}')
+            logger.info(f'Target will see caller ID: {external_number}')
             
-            # Create channel record for tracking
-            self._create_transfer_target_channel(call, bridge_call.sid, user)
+            # Create channel record for the transfer target call
+            self._create_transfer_target_channel(call, target_call.sid, user)
             
-            # Update the original call with a simple hold message
-            # This keeps Jason connected while the bridge is established
-            hold_response = VoiceResponse()
-            hold_response.say('Transfer in progress. Please hold.')
-            hold_response.pause(length=60)  # Keep Jason on hold briefly
-            hold_response.hangup()  # Then release Jason
+            # Step 5: Update the original Jason call to provide feedback and then hang up
+            logger.info(f'=== RELEASING ORIGINAL CALLER ===')
             
-            # Update the original call with hold message
-            result = client.calls(call_sid).update(twiml=str(hold_response))
+            jason_response = VoiceResponse()
+            jason_response.say('Transfer completed. You are now being disconnected.')
+            jason_response.hangup()
             
-            logger.info(f'=== BRIDGE TRANSFER SETUP COMPLETE ===')
-            logger.info(f'Original call updated with hold message: {result}')
-            logger.info(f'Bridge call created: {bridge_call.sid}')
+            # Update Jason's call 
+            jason_result = client.calls(call_sid).update(twiml=str(jason_response))
+            logger.info(f'Original caller updated: {jason_result.status}')
+            
+            logger.info(f'=== CONFERENCE TRANSFER COMPLETE ===')
+            logger.info(f'Conference: {conference_name}')
+            logger.info(f'External call in conference: {external_call_sid}')
+            logger.info(f'Target call created: {target_call.sid}')
+            logger.info(f'Original caller released: {call_sid}')
             
             return True
             
         except Exception as e:
-            logger.error(f'Bridge transfer failed: {e}', exc_info=True)
+            logger.error(f'Conference transfer failed: {e}', exc_info=True)
             return False
 
     def _execute_outgoing_blind_transfer(self, client, call_sid, user, call):
