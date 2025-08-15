@@ -596,7 +596,10 @@ class CallForwardHandler(models.TransientModel):
             target_response = VoiceResponse()
             target_response.say('You have an incoming transferred call.')
             
-            target_dial = Dial()
+            target_dial = Dial(
+                action=action_callback_url,
+                timeout=30  # Ring for 30 seconds before giving up
+            )
             target_dial.conference(
                 conference_name,
                 startConferenceOnEnter=True,
@@ -604,11 +607,12 @@ class CallForwardHandler(models.TransientModel):
             )
             target_response.append(target_dial)
             
-            # Get webhook URL for status callbacks
+            # Get webhook URLs for status and action callbacks
             api_url = self.env['connect.settings'].sudo().get_param('api_url')
             status_callback_url = urljoin(api_url, 'twilio/webhook/callstatus')
+            action_callback_url = urljoin(api_url, 'twilio/webhook/transfer_continuation')
             
-            # Create the call to the target with external caller ID
+            # Create the call to the target with external caller ID and action callback
             target_call = client.calls.create(
                 to=f'client:{user.uri}',
                 from_=external_number,  # This shows external caller ID to Patrick
@@ -1032,8 +1036,9 @@ class CallForwardHandler(models.TransientModel):
     @api.model
     def handle_transfer_continuation(self, webhook_params):
         """
-        Handle the action callback from transfer dial completion
-        This is where we implement the continuation logic to preserve external connections
+        Handle the action callback from transfer dial completion.
+        For successful transfers, let the conference continue.
+        For failed transfers, route the external caller to the transfer target's voicemail.
         """
         logger.info(f'=== HANDLING TRANSFER CONTINUATION ===')
         logger.info(f'Webhook parameters: {webhook_params}')
@@ -1042,34 +1047,60 @@ class CallForwardHandler(models.TransientModel):
         dial_call_status = webhook_params.get('DialCallStatus')
         dial_call_sid = webhook_params.get('DialCallSid')
         
-        logger.info(f'Call SID: {call_sid}')
+        logger.info(f'Transfer Target Call SID: {call_sid}')
         logger.info(f'Dial Status: {dial_call_status}')  
-        logger.info(f'Dial Call SID: {dial_call_sid}')
+        logger.info(f'Conference Dial SID: {dial_call_sid}')
         
         from twilio.twiml.voice_response import VoiceResponse
         response = VoiceResponse()
         
         if dial_call_status == 'completed':
-            logger.info('Transfer completed successfully - call should continue normally')
-            # Transfer was successful, the call should naturally continue
-            # We don't need to add anything - Twilio will bridge the calls
-            response.hangup()  # End the original call leg
+            logger.info('Transfer completed successfully - target answered and joined conference')
+            # Transfer successful - conference continues, this call leg ends
+            response.hangup()
             
         elif dial_call_status in ['busy', 'no-answer', 'failed', 'canceled']:
             logger.info(f'Transfer failed with status: {dial_call_status}')
-            # Transfer failed - we could implement fallback logic here
-            # For now, let the original call continue with a message
-            response.say(f'Transfer could not be completed. The extension is {dial_call_status}.')
-            response.say('You are being returned to the original caller.')
-            # Don't hangup - let the original connection continue
+            
+            # Route the external caller to the transfer target's extension
+            # This leverages existing user.render() logic that handles dial attempts + voicemail fallback
+            self._redirect_to_transfer_target_extension(call_sid, response)
+            
+            # Note: Missed call notifications handled automatically by existing call completion logic
             
         else:
             logger.warning(f'Unexpected dial call status: {dial_call_status}')
-            response.say('There was an issue with the transfer. Please try again.')
             response.hangup()
         
-        twiml_response = str(response)
-        logger.info(f'Generated continuation TwiML: {twiml_response}')
+        logger.info(f'Generated continuation TwiML: {str(response)}')
         logger.info(f'=== END TRANSFER CONTINUATION HANDLING ===')
         
         return response
+    
+    def _redirect_to_transfer_target_extension(self, failed_call_sid, response):
+        """
+        Redirect the external caller to the transfer target's extension.
+        This leverages the existing user.render() logic that automatically handles
+        dial attempts and voicemail fallback, plus missed call notifications.
+        """
+        try:
+            # Find the channel record for the failed transfer target call
+            channel = self.env['connect.channel'].search([('sid', '=', failed_call_sid)], limit=1)
+            if not channel or not channel.called_pbx_user:
+                logger.warning(f'Could not find transfer target for call {failed_call_sid}, hanging up')
+                response.hangup()
+                return
+            
+            target_user = channel.called_pbx_user
+            logger.info(f'Redirecting external caller to {target_user.name} extension for voicemail')
+            
+            # Use redirect to send caller to the target user's extension
+            # This automatically handles dial attempt + voicemail fallback via user.render()
+            api_url = self.env['connect.settings'].sudo().get_param('api_url')
+            extension_url = urljoin(api_url, f'connect/{target_user.exten.number}')
+            
+            response.redirect(extension_url)
+            
+        except Exception as e:
+            logger.error(f'Error redirecting to extension: {e}')
+            response.hangup()
