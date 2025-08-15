@@ -517,25 +517,38 @@ class CallForwardHandler(models.TransientModel):
             # For outgoing calls, we need to find and move the EXTERNAL call leg to conference
             # The current call_sid is the parent (internal), we need the child (external)
             
-            # Step 1: Find the external call leg (outbound-dial direction)
-            logger.info(f'=== DEBUGGING EXTERNAL CALL LEG DETECTION ===')
+            # Step 1: Find the external call leg (outbound-dial direction) with retry logic
+            logger.info(f'=== FINDING EXTERNAL CALL LEG FOR TRANSFER ===')
             logger.info(f'Call ID: {call.id}, Direction: {call.direction}')
-            logger.info(f'Number of channels: {len(call.channels)}')
             
             external_call_sid = None
-            for i, channel in enumerate(call.channels):
-                logger.info(f'Channel {i+1}: SID={channel.sid}, direction={channel.technical_direction}, status={channel.status}')
-                logger.info(f'  Called: {channel.called_number}, Caller: {channel.caller}')
-                logger.info(f'  Call source: {getattr(channel, "call_source", "N/A")}')
+            max_retries = 3
+            retry_delay = 0.5  # seconds
+            
+            for attempt in range(max_retries):
+                # Refresh call record to get latest channels
+                call.refresh()
+                logger.info(f'Attempt {attempt + 1}: Call has {len(call.channels)} channels')
                 
-                if channel.technical_direction == 'outbound-dial':
-                    external_call_sid = channel.sid
-                    logger.info(f'✓ Found external call leg: {external_call_sid}')
+                for i, channel in enumerate(call.channels):
+                    logger.info(f'  Channel {i+1}: SID={channel.sid}, direction={channel.technical_direction}, status={channel.status}')
+                    
+                    if channel.technical_direction == 'outbound-dial':
+                        external_call_sid = channel.sid
+                        logger.info(f'✓ Found external call leg: {external_call_sid}')
+                        break
+                
+                if external_call_sid:
                     break
+                    
+                if attempt < max_retries - 1:
+                    logger.info(f'External call leg not found, waiting {retry_delay}s before retry...')
+                    import time
+                    time.sleep(retry_delay)
             
             if not external_call_sid:
-                logger.error('❌ Could not find external call leg for outgoing transfer')
-                logger.error('Available channel directions: ' + ', '.join([f'{ch.sid}:{ch.technical_direction}' for ch in call.channels]))
+                logger.error('❌ Could not find external call leg after retries')
+                logger.error('Available channels: ' + ', '.join([f'{ch.sid}:{ch.technical_direction}' for ch in call.channels]))
                 return False
             
             # Step 2: Create a conference to bridge the calls
