@@ -592,17 +592,15 @@ class CallForwardHandler(models.TransientModel):
                 external_number = call.called or '+15551234567'  # Fallback
             logger.info(f'Using external caller ID: {external_number}')
             
-            # Get webhook URLs for status and action callbacks
+            # Get webhook URL for status callbacks
             api_url = self.env['connect.settings'].sudo().get_param('api_url')
             status_callback_url = urljoin(api_url, 'twilio/webhook/callstatus')
-            action_callback_url = urljoin(api_url, 'twilio/webhook/transfer_continuation')
             
             # Create TwiML for the target user to join conference immediately
             target_response = VoiceResponse()
             target_response.say('You have an incoming transferred call.')
             
             target_dial = Dial(
-                action=action_callback_url,
                 timeout=30  # Ring for 30 seconds before giving up
             )
             target_dial.conference(

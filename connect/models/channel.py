@@ -3,6 +3,7 @@
 import json
 import logging
 import re
+from urllib.parse import urljoin
 from odoo import fields, models, api, release
 from .settings import debug
 
@@ -126,6 +127,9 @@ class Channel(models.Model):
                     data['parent_sid'] = parent_channel.parent_channel.sid
             channel.write(data)
             debug(self, 'Channel %s updated.' % channel.id)
+            
+            # Handle failed outgoing call transfer targets
+            self._handle_failed_outgoing_transfer(channel, params)
         # Channel not found by sid, create it.
         else:
             logger.info(f"CREATING NEW CHANNEL for SID {params['CallSid']}")
@@ -296,4 +300,54 @@ class Channel(models.Model):
                 })
 
         return True
+
+    def _handle_failed_outgoing_transfer(self, channel, params):
+        """
+        Detect when an outgoing call transfer target fails (no-answer, busy, failed, canceled)
+        and redirect the external caller to the transfer target's voicemail.
+        """
+        # Only handle outbound-api calls (transfer target calls) with failure statuses
+        if (params.get('Direction') != 'outbound-api' or 
+            params.get('CallStatus') not in ['no-answer', 'busy', 'failed', 'canceled']):
+            return
+        
+        # Only handle channels that have a called_pbx_user (transfer targets)
+        if not channel.called_pbx_user:
+            return
+            
+        # Check if this is a transfer target call by looking for the transfer context
+        if not channel.call or channel.call.direction != 'outgoing':
+            return
+            
+        # This appears to be a failed outgoing transfer target
+        logger.info(f'=== DETECTED FAILED OUTGOING TRANSFER TARGET ===')
+        logger.info(f'Channel: {channel.id}, SID: {channel.sid}')
+        logger.info(f'Status: {params.get("CallStatus")}, Target: {channel.called_pbx_user.name}')
+        logger.info(f'Call: {channel.call.id}, Direction: {channel.call.direction}')
+        
+        try:
+            # Get the external call leg that needs to be redirected to voicemail
+            external_call_sid = channel.call.get_external_call_leg()
+            if not external_call_sid:
+                logger.warning(f'Could not find external call leg for failed transfer')
+                return
+                
+            # Use Twilio client to redirect the external caller to the target's extension
+            client = self.env['connect.settings'].get_client()
+            
+            # Get the target user's extension URL for voicemail
+            target_user = channel.called_pbx_user
+            api_url = self.env['connect.settings'].sudo().get_param('api_url')
+            extension_url = urljoin(api_url, f'connect/{target_user.exten.number}')
+            
+            logger.info(f'Redirecting external call {external_call_sid} to {target_user.name} extension: {extension_url}')
+            
+            # Redirect the external call to the target's extension for voicemail
+            client.calls(external_call_sid).update(url=extension_url, method='GET')
+            
+            logger.info(f'Successfully redirected external caller to voicemail')
+            logger.info(f'=== END FAILED TRANSFER HANDLING ===')
+            
+        except Exception as e:
+            logger.error(f'Error handling failed outgoing transfer: {e}')
 
