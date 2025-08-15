@@ -79,7 +79,7 @@ class ConnectPlusController(http.Controller):
     @http.route('/connect/dial_complete', methods=['GET', 'POST'], type='http', auth='public', csrf=False)
     def dial_complete_handler(self, **kw):
         """Handle Dial action completion to prevent fall-through to voicemail for successful transfers"""
-        from twilio.twiml import VoiceResponse
+        from twilio.twiml.voice_response import VoiceResponse
         
         dial_status = kw.get('DialCallStatus')
         logger.info(f'Dial completed with status: {dial_status}')
