@@ -624,22 +624,16 @@ class CallForwardHandler(models.TransientModel):
             # Create channel record for the transfer target call
             self._create_transfer_target_channel(call, target_call.sid, user)
             
-            # Step 5: Update the original Jason call to provide feedback and then hang up
-            logger.info(f'=== RELEASING ORIGINAL CALLER ===')
-            
-            jason_response = VoiceResponse()
-            jason_response.say('Transfer completed. You are now being disconnected.')
-            jason_response.hangup()
-            
-            # Update Jason's call 
-            jason_result = client.calls(call_sid).update(twiml=str(jason_response))
-            logger.info(f'Original caller updated: {jason_result.status}')
+            # Step 5: Original caller will be automatically disconnected when conference starts
+            # No need to update their call - Twilio handles this automatically
+            logger.info(f'=== ORIGINAL CALLER WILL BE DISCONNECTED AUTOMATICALLY ===')
+            logger.info(f'Original caller will be disconnected when the conference bridge completes the transfer')
             
             logger.info(f'=== CONFERENCE TRANSFER COMPLETE ===')
             logger.info(f'Conference: {conference_name}')
             logger.info(f'External call in conference: {external_call_sid}')
-            logger.info(f'Target call created: {target_call.sid}')
-            logger.info(f'Original caller released: {call_sid}')
+            logger.info(f'Transfer target call created: {target_call.sid}')
+            logger.info(f'Original caller will be automatically released: {call_sid}')
             
             return True
             
