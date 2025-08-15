@@ -383,17 +383,26 @@ class CallForwardHandler(models.TransientModel):
                             logger.warning(f'No call found for session {session_id}')
                     
                     if call and call.exists():
-                        call.add_transferred_user(user.user)
-                        logger.info(f'Added transfer target {user.user.login} to call {call.id}')
+                        try:
+                            call.add_transferred_user(user.user)
+                            logger.info(f'Added transfer target {user.user.login} to call {call.id}')
+                        except Exception as e:
+                            logger.warning(f'Could not add transfer user (concurrent update): {e}')
                         
-                        # Store transfer context for webhook processing (use target_call_sid as key)
-                        call.store_transfer_context(target_call_sid, user.user)
-                        logger.info(f'Stored transfer context for call {target_call_sid} -> {user.user.login}')
+                        try:
+                            # Store transfer context for webhook processing (use target_call_sid as key)
+                            call.store_transfer_context(target_call_sid, user.user)
+                            logger.info(f'Stored transfer context for call {target_call_sid} -> {user.user.login}')
+                        except Exception as e:
+                            logger.warning(f'Could not store transfer context: {e}')
                         
-                        # EXPLICIT PATTERN TAGGING: Ensure call pattern is set for transfers
-                        if not call.call_pattern:
-                            call.call_pattern = 'direct_call'  # Transfers only happen from direct calls
-                            logger.info(f'Call {call.id}: Set pattern to direct_call during transfer')
+                        try:
+                            # EXPLICIT PATTERN TAGGING: Ensure call pattern is set for transfers
+                            if not call.call_pattern:
+                                call.call_pattern = 'direct_call'  # Transfers only happen from direct calls
+                                logger.info(f'Call {call.id}: Set pattern to direct_call during transfer')
+                        except Exception as e:
+                            logger.warning(f'Could not set call pattern: {e}')
                     else:
                         logger.warning(f'Could not find call record to track transfer to {user.user.login}')
                 except Exception as e:
@@ -526,8 +535,8 @@ class CallForwardHandler(models.TransientModel):
             retry_delay = 0.5  # seconds
             
             for attempt in range(max_retries):
-                # Refresh call record to get latest channels
-                call.refresh()
+                # Refresh call record to get latest channels by re-browsing
+                call = self.env['connect.call'].browse(call.id)
                 logger.info(f'Attempt {attempt + 1}: Call has {len(call.channels)} channels')
                 
                 for i, channel in enumerate(call.channels):
