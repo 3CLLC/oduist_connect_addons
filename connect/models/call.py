@@ -994,7 +994,9 @@ class Call(models.Model):
             statuses = ['completed']
             # Since register_call() now only runs when call is truly finished, we can safely send missed call notifications
             # For transfer scenarios, send notifications even if call was completed (because transfer may have failed)
-            should_notify = (channel.call.direction == 'incoming' and notify_users and 
+            should_notify = ((channel.call.direction == 'incoming' or 
+                            (channel.call.direction == 'outgoing' and channel.call.transferred_users)) and 
+                           notify_users and 
                            (channel.call.status not in statuses or channel.call.transferred_users))
             if should_notify:
                 debug(self, 'Missed call notification to users: {}'.format(notify_users))

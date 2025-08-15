@@ -75,6 +75,30 @@ class ConnectPlusController(http.Controller):
         
         # Render the extension with the webhook parameters
         return exten.render(request=kw, params=kw)
+    
+    @http.route('/connect/dial_complete', methods=['GET', 'POST'], type='http', auth='public', csrf=False)
+    def dial_complete_handler(self, **kw):
+        """Handle Dial action completion to prevent fall-through to voicemail for successful transfers"""
+        from twilio.twiml import VoiceResponse
+        
+        dial_status = kw.get('DialCallStatus')
+        logger.info(f'Dial completed with status: {dial_status}')
+        
+        response = VoiceResponse()
+        
+        if dial_status == 'completed':
+            # Call was answered successfully - just hang up (don't fall through to voicemail)
+            logger.info('Transfer call answered - hanging up to prevent voicemail')
+            response.hangup()
+        else:
+            # Call was not answered - redirect back to voicemail
+            call_sid = kw.get('CallSid')
+            logger.info(f'Transfer call not answered (status: {dial_status}) - allowing voicemail')
+            # Don't redirect, just let it fall through naturally to voicemail in the original TwiML
+            response.say('Please leave a message after the tone.')
+            response.record(maxLength=120, finishOnKey='#', playBeep=True)
+        
+        return response.to_xml()
 
     @http.route('/connect/health/<string:uid>/', methods=['GET', 'POST'], type='http', auth='public', csrf=False)
     def health_check(self, uid):

@@ -226,16 +226,29 @@ class User(models.Model):
         
         channel = self.env['connect.channel'].search([('sid', '=', request.get('CallSid'))])
         call = channel.call
-        # Check callerid for client calls
-        user = self.env['connect.user'].get_user_by_uri(request.get('Caller'))
-        caller_name = params.get('CallerName', False)
-        if user:
-            callerId = user.exten.number or ''
-            if not callerId:
-                logger.warning('Exten not set for user %s', user.name)
-            caller_name = user.name
+        # Check callerid for client calls - but for transfer redirects, use the original external caller
+        is_transfer_redirect = (
+            params.get('Direction') == 'outbound-dial' and 
+            params.get('ParentCallSid') and
+            request.get('Direction') == 'outbound-dial'
+        )
+        
+        if is_transfer_redirect:
+            # For transfer redirects, the original external caller info is in params
+            callerId = params.get('Called', request.get('Called', ''))  # The original external number
+            caller_name = None  # No name available for external callers
+            logger.info(f'Transfer redirect: Using external caller ID {callerId}')
         else:
-            callerId = request.get('Caller')
+            # Normal call logic
+            user = self.env['connect.user'].get_user_by_uri(request.get('Caller'))
+            caller_name = params.get('CallerName', False)
+            if user:
+                callerId = user.exten.number or ''
+                if not callerId:
+                    logger.warning('Exten not set for user %s', user.name)
+                caller_name = user.name
+            else:
+                callerId = request.get('Caller')
         api_url = self.env['connect.settings'].sudo().get_param('api_url')
         record_status_url = urljoin(api_url, 'twilio/webhook/recordingstatus')
         status_url = urljoin(api_url, 'twilio/webhook/callstatus')
@@ -251,7 +264,11 @@ class User(models.Model):
         
         # Only create SIP dial if SIP is enabled
         if self.sip_enabled:
+            # For transfer redirects, prevent fall-through to voicemail by using action URL
+            action_url = urljoin(api_url, 'connect/dial_complete') if is_transfer_redirect else None
             dial_sip_kwargs = {'timeout': self.sip_ring_timeout, 'callerId': callerId}
+            if action_url:
+                dial_sip_kwargs['action'] = action_url
             if self.record_calls:
                 dial_sip_kwargs.update({
                     'recordingStatusCallback': record_status_url,
@@ -265,7 +282,11 @@ class User(models.Model):
 
         # Only create client dial if client is enabled
         if self.client_enabled:
+            # For transfer redirects, prevent fall-through to voicemail by using action URL
+            action_url = urljoin(api_url, 'connect/dial_complete') if is_transfer_redirect else None
             dial_client_kwargs = {'timeout': self.client_ring_timeout, 'callerId': callerId}
+            if action_url:
+                dial_client_kwargs['action'] = action_url
             if self.record_calls:
                 dial_client_kwargs.update({
                     'record': 'record-from-answer',
