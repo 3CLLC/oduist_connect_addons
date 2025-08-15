@@ -247,7 +247,11 @@ class Call(models.Model):
         """
         self.ensure_one()
         
-        if self.answered_user:
+        # Outgoing calls are always marked as completed
+        if self.direction == 'outgoing':
+            self.status = 'completed'
+            logger.info(f"Call {self.id}: Status set to 'completed' (outgoing call)")
+        elif self.answered_user:
             # Someone answered the call - it's completed regardless of transfers
             self.status = 'completed'
             logger.info(f"Call {self.id}: Status set to 'completed' (answered by {self.answered_user.login})")
@@ -269,11 +273,17 @@ class Call(models.Model):
         """
         Populate user fields for direct call pattern (press 1 for extension).
         In this pattern, one user is called initially, may transfer to others.
+        For outgoing calls, handle differently since caller (not called) is the internal user.
         """
         self.ensure_one()
         logger.info(f"Call {self.id}: Populating user fields for direct call pattern")
         
-        # Find all channels with users (completed or not)
+        # Handle outgoing calls differently
+        if self.direction == 'outgoing':
+            self._populate_outgoing_call_user_fields()
+            return
+        
+        # Find all channels with users (completed or not) for incoming calls
         user_channels = self.channels.filtered(lambda c: c.called_pbx_user and c.called_pbx_user.user)
         
         if not user_channels:
@@ -352,6 +362,81 @@ class Call(models.Model):
                 # No transfer - original answerer completed
                 self.completed_by_user = self.answered_user
                 logger.info(f"Call {self.id}: completed_by_user set to original answerer {self.completed_by_user.login} (no transfer)")
+
+    def _populate_outgoing_call_user_fields(self):
+        """
+        Populate user fields for outgoing calls (internal user calling external party).
+        answered_user: External recipient (if they answered) - Odoo contact or phone number
+        completed_by_user: Last internal person who handled the call (caller or transfer recipient)
+        """
+        self.ensure_one()
+        logger.info(f"Call {self.id}: Populating user fields for outgoing call")
+        
+        # ANSWERED USER: Set to external recipient only if they actually answered
+        outbound_channel = None
+        for channel in self.channels:
+            if channel.technical_direction == 'outbound-dial':
+                outbound_channel = channel
+                break
+        
+        if outbound_channel:
+            # Check if external party actually answered (not voicemail/no-answer)
+            external_answered = (outbound_channel.status in ['in-progress', 'completed'] and 
+                               outbound_channel.duration and outbound_channel.duration > 0)
+            
+            if external_answered:
+                # External party answered - set answered_user to external recipient
+                # Try to find Odoo contact first, fallback to phone number
+                external_number = outbound_channel.called_number
+                if outbound_channel.partner:
+                    # Found Odoo contact
+                    self.answered_user = outbound_channel.partner.user_id if outbound_channel.partner.user_id else None
+                    logger.info(f"Call {self.id}: answered_user set to Odoo contact {outbound_channel.partner.name}")
+                else:
+                    # No Odoo contact found - would need to create a user record for phone number
+                    # For now, leave empty and log the external number
+                    logger.info(f"Call {self.id}: External party {external_number} answered, but no Odoo contact found")
+            else:
+                # External party didn't answer (voicemail, busy, no-answer)
+                logger.info(f"Call {self.id}: External party didn't answer (status: {outbound_channel.status})")
+        
+        # COMPLETED BY USER: Last internal person who handled the call
+        # Check for transfer recipients first (they're the ones who completed it)
+        internal_channels = self.channels.filtered(lambda c: c.called_pbx_user and c.called_pbx_user.user)
+        
+        if internal_channels:
+            # There are transfer recipients - find who completed the call
+            completed_internal = internal_channels.filtered(lambda c: c.status == 'completed')
+            if completed_internal:
+                # Someone completed via transfer
+                if len(completed_internal) > 1:
+                    completed_channel = completed_internal.sorted('id')[-1]  # Most recent
+                    logger.warning(f"Call {self.id}: Multiple completed transfer channels, using latest: {completed_channel.id}")
+                else:
+                    completed_channel = completed_internal[0]
+                
+                self.completed_by_user = completed_channel.called_pbx_user.user
+                logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
+            else:
+                # Transfer channels exist but none completed - original caller handled it
+                self._set_original_caller_as_completer()
+        else:
+            # No transfer recipients - original caller handled the call
+            self._set_original_caller_as_completer()
+    
+    def _set_original_caller_as_completer(self):
+        """Helper to set original caller as completed_by_user for outgoing calls"""
+        caller_channel = None
+        for channel in self.channels:
+            if channel.caller_pbx_user and channel.caller_pbx_user.user:
+                caller_channel = channel
+                break
+        
+        if caller_channel:
+            self.completed_by_user = caller_channel.caller_pbx_user.user
+            logger.info(f"Call {self.id}: completed_by_user set to original caller {self.completed_by_user.login}")
+        else:
+            logger.warning(f"Call {self.id}: Could not identify original caller for outgoing call")
 
     def _populate_user_fields_ring_group(self):
         """
@@ -536,6 +621,9 @@ class Call(models.Model):
                 # Default
                 debug(self, 'Setting default call direction to outgoing.')
                 direction = 'outgoing'
+            # Set call pattern for outgoing calls (always direct_call since they're one-to-one)
+            call_pattern = 'direct_call' if direction == 'outgoing' else False
+            
             call = self.with_context(tracking_disable=True).create({
                 'partner': channel.partner.id,
                 'called': channel.called_number,
@@ -544,6 +632,7 @@ class Call(models.Model):
                 'caller_pbx_user': channel.caller_pbx_user.id,
                 'caller_user': channel.caller_user.id,
                 'direction': direction,
+                'call_pattern': call_pattern,
             })
             channel.call = call
         elif channel.parent_channel and channel.parent_channel.call:
