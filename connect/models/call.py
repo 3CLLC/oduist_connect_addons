@@ -56,6 +56,8 @@ class Call(models.Model):
     # Transfer tracking fields
     transferred_users = fields.Many2many('res.users', 'connect_call_transfer_rel', 'call_id', 'user_id', string='Transferred Users', readonly=True)
     completed_by_user = fields.Many2one('res.users', ondelete='set null', string='Completed By', readonly=True)
+    # Temporary transfer context for webhook processing (cleared after use)
+    transfer_context = fields.Json(string='Transfer Context', readonly=True, help='Temporary storage for transfer targets during webhook processing')
     # Call pattern tracking
     call_pattern = fields.Selection([
         ('ring_group', 'Ring Group (Multiple Users)'),
@@ -462,6 +464,49 @@ class Call(models.Model):
                         self.call_pattern = detected_pattern
                         logger.info(f"Call {self.id}: Pattern detection triggered by transfer: '{detected_pattern}'")
 
+    def store_transfer_context(self, dial_call_sid, target_user):
+        """
+        Store temporary transfer context for webhook processing.
+        Maps DialCallSid to target user for reliable webhook processing.
+        """
+        self.ensure_one()
+        if not dial_call_sid or not target_user:
+            return
+            
+        current_context = self.transfer_context or {}
+        current_context[dial_call_sid] = {
+            'user_id': target_user.id,
+            'user_login': target_user.login
+        }
+        self.transfer_context = current_context
+        logger.info(f"Call {self.id}: Stored transfer context for {dial_call_sid} -> {target_user.login}")
+
+    def get_transfer_target(self, dial_call_sid):
+        """
+        Get transfer target from temporary context storage.
+        Returns user record or None if not found.
+        """
+        self.ensure_one()
+        if not self.transfer_context or not dial_call_sid:
+            return None
+            
+        context_data = self.transfer_context.get(dial_call_sid)
+        if context_data and 'user_id' in context_data:
+            user = self.env['res.users'].sudo().browse(context_data['user_id'])
+            if user.exists():
+                logger.info(f"Call {self.id}: Retrieved transfer target from context: {user.login}")
+                return user
+        return None
+
+    def clear_transfer_context(self):
+        """
+        Clear temporary transfer context after call processing is complete.
+        """
+        self.ensure_one()
+        if self.transfer_context:
+            logger.info(f"Call {self.id}: Clearing transfer context")
+            self.transfer_context = None
+
     def write(self, vals):
         return super().write(vals)
 
@@ -796,6 +841,18 @@ class Call(models.Model):
                 target_user = call_with_sudo.transferred_users[-1]  # Most recent transfer target
                 logger.info(f"Using current call transfer target: {target_user.login}")
             
+            # STRATEGY A+: Check transfer context (temporary storage for webhook processing)
+            if not target_user:
+                # Try using DialCallSid first
+                target_user = call.get_transfer_target(dial_call_sid)
+                if not target_user:
+                    # Try using the original CallSid (parent call) as fallback
+                    original_call_sid = params.get('CallSid')  # This is the main call SID
+                    if original_call_sid:
+                        target_user = call.get_transfer_target(original_call_sid)
+                if target_user:
+                    logger.info(f"Using transfer context target: {target_user.login}")
+            
             # STRATEGY B: Fallback to previous transfer pattern (existing logic)
             if not target_user:
                 recent_transfers = self.env['connect.call'].sudo().search([
@@ -931,6 +988,8 @@ class Call(models.Model):
                         body=transfer_final_message,
                         partner_ids=[k.partner_id.id for k in transfer_missed_users]
                     )
+            # Clear temporary transfer context after call processing is complete
+            channel.call.clear_transfer_context()
         except Exception as e:
             logger.exception('Register call error:', e)
 

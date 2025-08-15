@@ -386,6 +386,10 @@ class CallForwardHandler(models.TransientModel):
                         call.add_transferred_user(user.user)
                         logger.info(f'Added transfer target {user.user.login} to call {call.id}')
                         
+                        # Store transfer context for webhook processing (use target_call_sid as key)
+                        call.store_transfer_context(target_call_sid, user.user)
+                        logger.info(f'Stored transfer context for call {target_call_sid} -> {user.user.login}')
+                        
                         # EXPLICIT PATTERN TAGGING: Ensure call pattern is set for transfers
                         if not call.call_pattern:
                             call.call_pattern = 'direct_call'  # Transfers only happen from direct calls
