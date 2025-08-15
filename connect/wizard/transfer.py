@@ -399,25 +399,38 @@ class CallForwardHandler(models.TransientModel):
                 except Exception as e:
                     logger.error(f'Failed to track transfer in call record: {e}', exc_info=True)
             
-            # Create different TwiML based on transfer type
-            if transfer_type == 'blind':
-                # BLIND TRANSFER: Immediate transfer with smart error handling
-                twiml_str = self._create_blind_transfer_twiml(user)
-                logger.info('Created BLIND transfer TwiML (immediate transfer)')
+            # Determine if this is an outgoing call to use appropriate transfer method
+            is_outgoing_call = False
+            if call and call.exists():
+                is_outgoing_call = call.direction == 'outgoing'
+                logger.info(f'Call direction detected: {call.direction} (outgoing={is_outgoing_call})')
+            
+            # Use different transfer approaches for outgoing vs incoming calls
+            if is_outgoing_call and transfer_type == 'blind':
+                # OUTGOING CALL BLIND TRANSFER: Use direct transfer to preserve external connection
+                logger.info('=== OUTGOING CALL TRANSFER: Using direct transfer method ===')
+                result = self._execute_outgoing_blind_transfer(client, target_call_sid, user, call)
             else:
-                # ATTENDED TRANSFER: Conference-based with consultation
-                twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
-                logger.info('Created ATTENDED transfer TwiML (conference-based)')
-            
-            logger.info(f'=== GENERATED TWIML ===')
-            logger.info(f'TwiML: {twiml_str}')
-            logger.info(f'TwiML Length: {len(twiml_str)} characters')
-            
-            # Update the CORRECT call (parent if exists, otherwise current)
-            logger.info('=== UPDATING CALL WITH TWIML ===')
-            logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
-            
-            result = client.calls(target_call_sid).update(twiml=twiml_str)
+                # INCOMING CALL OR ATTENDED TRANSFER: Use existing TwiML approach
+                logger.info('=== INCOMING CALL OR ATTENDED TRANSFER: Using TwiML method ===')
+                
+                # Create different TwiML based on transfer type
+                if transfer_type == 'blind':
+                    twiml_str = self._create_blind_transfer_twiml(user, call if is_outgoing_call else None)
+                    logger.info('Created BLIND transfer TwiML (immediate transfer)')
+                else:
+                    twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
+                    logger.info('Created ATTENDED transfer TwiML (conference-based)')
+                
+                logger.info(f'=== GENERATED TWIML ===')
+                logger.info(f'TwiML: {twiml_str}')
+                logger.info(f'TwiML Length: {len(twiml_str)} characters')
+                
+                # Update the CORRECT call (parent if exists, otherwise current)
+                logger.info('=== UPDATING CALL WITH TWIML ===')
+                logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
+                
+                result = client.calls(target_call_sid).update(twiml=twiml_str)
             
             logger.info(f'=== CALL UPDATE RESULT ===')
             logger.info(f'Update result: {result}')
@@ -436,10 +449,11 @@ class CallForwardHandler(models.TransientModel):
             logger.error(f'Exception: {e}', exc_info=True)
             return False
 
-    def _create_blind_transfer_twiml(self, user):
+    def _create_blind_transfer_twiml(self, user, outgoing_call=None):
         """
         Create TwiML for blind (immediate) transfer WITH webhook configuration
         Fixed to include action URL so transfer completion webhooks are sent
+        Enhanced with proper caller ID for outgoing calls
         """
         response = VoiceResponse()
         response.say('Transferring your call now.')
@@ -455,6 +469,14 @@ class CallForwardHandler(models.TransientModel):
             method='POST'
         )
         
+        # For outgoing calls, preserve original caller information in callerId
+        if outgoing_call and outgoing_call.direction == 'outgoing':
+            # Get the original external caller info from the call
+            original_caller = self._get_original_caller_for_transfer(outgoing_call)
+            if original_caller:
+                dial.callerId = original_caller
+                logger.info(f'OUTGOING TRANSFER: Set callerId to original external caller: {original_caller}')
+        
         from twilio.twiml.voice_response import Client
         client_elem = Client()
         client_elem.identity(user.uri)
@@ -463,6 +485,91 @@ class CallForwardHandler(models.TransientModel):
         
         logger.info(f'BLIND TRANSFER: Added webhook URL {webhook_url} to capture transfer completion')
         return str(response)
+
+    def _execute_outgoing_blind_transfer(self, client, call_sid, user, call):
+        """
+        Execute blind transfer for outgoing calls using Twilio's transfer approach
+        This preserves the external connection by transferring the call instead of replacing TwiML
+        """
+        try:
+            logger.info(f'=== EXECUTING OUTGOING CALL BLIND TRANSFER ===')
+            logger.info(f'Call SID: {call_sid}')
+            logger.info(f'Transfer to user: {user.name} (URI: {user.uri})')
+            
+            # Get original external caller information for proper caller ID
+            original_caller = self._get_original_caller_for_transfer(call)
+            
+            # Create a new outbound call to the target extension with proper caller ID
+            # This connects the external party to the internal extension
+            api_url = self.env['connect.settings'].sudo().get_param('api_url')
+            webhook_url = urljoin(api_url, 'twilio/webhook/callaction')
+            
+            # Create TwiML to bridge the calls
+            response = VoiceResponse()
+            response.say('Transferring your call now.')
+            
+            dial = Dial(
+                timeout=30,
+                action=webhook_url,
+                method='POST',
+                callerId=original_caller if original_caller else None
+            )
+            
+            from twilio.twiml.voice_response import Client
+            client_elem = Client()
+            client_elem.identity(user.uri)
+            dial.append(client_elem)
+            response.append(dial)
+            
+            # Update the call with the transfer TwiML
+            result = client.calls(call_sid).update(twiml=str(response))
+            
+            logger.info(f'OUTGOING BLIND TRANSFER: Successfully updated call {call_sid}')
+            logger.info(f'Transfer target: {user.uri}')
+            logger.info(f'Original caller ID preserved: {original_caller}')
+            logger.info(f'Update result: {result}')
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f'Outgoing blind transfer failed: {e}', exc_info=True)
+            return False
+
+    def _get_original_caller_for_transfer(self, call):
+        """
+        Extract the original external caller information for outgoing call transfers
+        This ensures the transfer recipient sees the external caller, not the internal user
+        """
+        try:
+            if not call or call.direction != 'outgoing':
+                logger.info('Not an outgoing call, no original caller to extract')
+                return None
+            
+            # For outgoing calls, the external party info should be in the called field or channels
+            # Look for the external number from the child channel (outbound-dial direction)
+            outbound_channel = None
+            for channel in call.channel_ids:
+                if channel.technical_direction == 'outbound-dial':
+                    outbound_channel = channel
+                    break
+            
+            if outbound_channel:
+                # The external number is the 'called' number in the outbound channel
+                external_number = outbound_channel.called_number
+                logger.info(f'Found external caller from outbound channel: {external_number}')
+                return external_number
+            
+            # Fallback: try to get from call.called field
+            if hasattr(call, 'called') and call.called:
+                logger.info(f'Using call.called as external caller: {call.called}')
+                return call.called
+            
+            logger.warning('Could not determine original external caller for outgoing call transfer')
+            return None
+            
+        except Exception as e:
+            logger.error(f'Error getting original caller for transfer: {e}')
+            return None
 
     def _create_attended_transfer_twiml(self, user, call_sid):
         """
