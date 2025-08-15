@@ -749,9 +749,9 @@ class Call(models.Model):
 
     def _create_missing_transfer_channel(self, call, dial_call_sid, dial_status, params):
         """
-        Create a missing transfer channel when STRATEGY 2 can't find an existing one.
-        This method doesn't rely on transferred_users to avoid transaction timing issues.
-        Instead, it uses the webhook parameters and call context to determine the transfer target.
+        Create a missing transfer channel for DIRECT_CALLS when no existing recipient channel found.
+        This method uses multiple strategies to identify the transfer target without relying on 
+        transferred_users field due to transaction timing issues.
         """
         try:
             logger.info(f"=== CREATING MISSING TRANSFER CHANNEL ===")
@@ -764,70 +764,29 @@ class Call(models.Model):
                 return None
             parent_channel = parent_channel[0]
             
-            # Strategy: Look at recent transfer activity to find the target
-            # Check if we can find recent transfer-related activity in the call logs or channels
-            # For now, try to find the most recent user who would be a likely transfer target
-            
-            # Alternative approach: Look for connect.user records that match the transfer pattern
-            # Since this is a transfer completion, the target user should be findable by:
-            # 1. Looking at recent extension activity in the system
-            # 2. Finding users who are currently available for transfers
-            # 3. Using the DialCallSid to infer the target (if it follows a pattern)
-            
-            # For now, let's try to find any available PBX users who could be transfer targets
-            # and use heuristics to pick the most likely one
-            available_pbx_users = self.env['connect.user'].sudo().search([
-                ('client_enabled', '=', True),
-                ('user', '!=', False)  # Has an Odoo user linked
-            ])
-            
-            if not available_pbx_users:
-                logger.warning(f"No available PBX users found for transfer")
-                return None
-            
-            # Heuristic: If there are only a few users, and we know someone was transferred to,
-            # try to pick the most likely candidate based on recent activity or alphabetical order
-            # This is not perfect but better than failing entirely
-            
             # Try multiple strategies to determine transfer target:
             target_user = None
             
-            # STRATEGY A: Check current call's transferred_users (set during transfer initiation)
-            call_with_sudo = call.sudo()  # Ensure we can read the field
-            if call_with_sudo.transferred_users:
-                target_user = call_with_sudo.transferred_users[-1]  # Most recent transfer target
-                logger.info(f"Using current call transfer target: {target_user.login}")
-            
-            # STRATEGY A+: Check transfer context (temporary storage for webhook processing)
+            # PRIMARY: Check transfer context (temporary storage for webhook processing)
+            target_user = call.get_transfer_target(dial_call_sid)
             if not target_user:
-                # Try using DialCallSid first
-                target_user = call.get_transfer_target(dial_call_sid)
-                if not target_user:
-                    # Try using the original CallSid (parent call) as fallback
-                    original_call_sid = params.get('CallSid')  # This is the main call SID
-                    if original_call_sid:
-                        target_user = call.get_transfer_target(original_call_sid)
-                if target_user:
-                    logger.info(f"Using transfer context target: {target_user.login}")
+                # Try using the original CallSid (parent call) as fallback
+                original_call_sid = params.get('CallSid')  # This is the main call SID
+                if original_call_sid:
+                    target_user = call.get_transfer_target(original_call_sid)
+            if target_user:
+                logger.info(f"Using transfer context target: {target_user.login}")
             
-            # STRATEGY B: Fallback to previous transfer pattern (existing logic)
+            # FALLBACK: Check current call's transferred_users (set during transfer initiation)
             if not target_user:
-                recent_transfers = self.env['connect.call'].sudo().search([
-                    ('transferred_users', '!=', False),
-                    ('id', '!=', call.id)
-                ], limit=1, order='id desc')
-                
-                if recent_transfers and recent_transfers[0].transferred_users:
-                    target_user = recent_transfers[0].transferred_users[-1]
-                    logger.info(f"Using recent transfer target as fallback: {target_user.login}")
-                else:
-                    # Last resort: Use first available user
-                    target_pbx_user = available_pbx_users[0]
-                    target_user = target_pbx_user.user
-                    logger.info(f"Using first available user as fallback: {target_user.login}")
+                call_with_sudo = call.sudo()  # Ensure we can read the field
+                if call_with_sudo.transferred_users:
+                    target_user = call_with_sudo.transferred_users[-1]  # Most recent transfer target
+                    logger.info(f"Using current call transfer target: {target_user.login}")
             
+            # If we still can't determine the target, fail explicitly
             if not target_user:
-                logger.warning(f"Could not determine transfer target user")
+                logger.error(f"Cannot determine transfer target for call {call.id} - no transfer context or transferred_users available")
                 return None
                 
             # Find the PBX user for this Odoo user
