@@ -298,17 +298,9 @@ class User(models.Model):
         elif self.ring_second == 'client' and self.client_enabled and dial_client:
             response.append(dial_client)
         
-        # Voicemail - but NOT for redirected transfer calls
-        # This specifically targets external callers redirected from outgoing call transfers
-        is_transfer_redirect = (
-            params.get('Direction') == 'outbound-dial' and 
-            params.get('ParentCallSid') and
-            request.get('Direction') == 'outbound-dial' and
-            call and call.direction == 'outgoing' and
-            call.transferred_users  # Only if there are actual transfers
-        )
-        
-        if self.voicemail_enabled and not is_transfer_redirect:
+        # Voicemail - allow for transfer redirects (external caller should get voicemail if no answer)
+        # The previous logic was too restrictive - we should allow voicemail for failed transfers
+        if self.voicemail_enabled:
             # The call voicemail
             voicemail_record_status_url = urljoin(api_url, 'twilio/webhook/vm_recordingstatus')
             response.pause(length=1)
@@ -318,8 +310,17 @@ class User(models.Model):
                 finishOnKey='#',
                 playBeep=True,
                 recordingStatusCallback=voicemail_record_status_url)
-        elif is_transfer_redirect:
-            logger.info(f'Skipping voicemail for transfer redirect call (SID: {request.get("CallSid")})')
+            
+            # Debug log for transfer calls
+            is_transfer_redirect = (
+                params.get('Direction') == 'outbound-dial' and 
+                params.get('ParentCallSid') and
+                request.get('Direction') == 'outbound-dial' and
+                call and call.direction == 'outgoing' and
+                call.transferred_users
+            )
+            if is_transfer_redirect:
+                logger.info(f'Allowing voicemail for transfer redirect call (SID: {request.get("CallSid")}) - target did not answer')
         
         debug(self, pretty_xml(response.to_xml()))
         return response.to_xml()

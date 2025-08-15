@@ -428,8 +428,9 @@ class Call(models.Model):
                 self.completed_by_user = completed_channel.called_pbx_user.user
                 logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
             else:
-                # Transfer channels exist but none completed - original caller handled it
-                self._set_original_caller_as_completer()
+                # Transfer channels exist but none completed - no one handled the call
+                # Leave completed_by_user empty since transfer failed and no one answered
+                logger.info(f"Call {self.id}: Transfer attempted but no transfer recipient completed - completed_by_user remains empty")
         else:
             # No transfer recipients - original caller handled the call
             self._set_original_caller_as_completer()

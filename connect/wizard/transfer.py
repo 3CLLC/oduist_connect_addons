@@ -558,19 +558,28 @@ class CallForwardHandler(models.TransientModel):
                 logger.error('This indicates the outbound-dial channel was not properly stored during call setup')
                 return False
             
-            # Step 2: Redirect the external caller directly to the target's extension
+            # Step 2: Play transfer message to external caller, then redirect
             logger.info(f'=== REDIRECTING EXTERNAL CALLER TO EXTENSION ===')
             
+            # First, play a transfer message to the external caller
+            transfer_response = VoiceResponse()
+            transfer_response.say('Transferring your call now. Please hold.')
+            transfer_response.pause(length=1)
+            
+            # Create the redirect URL for after the message
             api_url = self.env['connect.settings'].sudo().get_param('api_url')
             extension_url = urljoin(api_url, f'connect/{user.exten.number}')
             
+            # Add redirect to the extension after the message
+            transfer_response.redirect(extension_url, method='GET')
+            
             logger.info(f'Redirecting external call {external_call_sid} to extension {user.exten.number}')
             logger.info(f'Extension URL: {extension_url}')
+            logger.info(f'Transfer message TwiML: {str(transfer_response)}')
             
-            # Update the external call to redirect to the extension
+            # Update the external call with the transfer message + redirect
             redirect_result = client.calls(external_call_sid).update(
-                url=extension_url, 
-                method='GET'
+                twiml=str(transfer_response)
             )
             
             logger.info(f'External call redirected: {redirect_result.status}')
