@@ -388,9 +388,10 @@ class Call(models.Model):
                 self.called_users = [(4, outbound_channel.partner.user_id.id)]
                 logger.info(f"Call {self.id}: called_users set to Odoo contact {outbound_channel.partner.name}")
             else:
-                # No Odoo user for external party - called_users will remain empty
+                # No Odoo user for external party - clear any transfer recipients that may have been added
                 # The phone number is tracked in the 'called' field
-                logger.info(f"Call {self.id}: External party {external_number} has no Odoo user - called_users empty")
+                self.called_users = [(5,)]  # Clear all called_users
+                logger.info(f"Call {self.id}: External party {external_number} has no Odoo user - called_users cleared of transfer recipients")
             
             # ANSWERED USER: Set to external recipient only if they actually answered
             external_answered = (outbound_channel.status in ['in-progress', 'completed'] and 
