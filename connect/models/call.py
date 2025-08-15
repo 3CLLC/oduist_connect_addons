@@ -676,82 +676,39 @@ class Call(models.Model):
         call = original_channel.call
         logger.info(f"Found call {call.id} for transfer processing")
         
-        # STRATEGY 1: Find recipient channel by matching DialCallSid to existing channel SIDs
-        # This should work because the DialCallSid is the actual call SID for the transfer recipient
-        recipient_channel = call.channels.filtered(lambda c: c.sid == dial_call_sid)
-        
-        if recipient_channel:
-            logger.info(f"STRATEGY 1 SUCCESS: Found recipient channel {recipient_channel[0].id} by matching DialCallSid")
-            recipient_channel = recipient_channel[0]
-        else:
-            logger.info(f"STRATEGY 1 FAILED: No channel found with SID {dial_call_sid}")
-            
-            # STRATEGY 1B: Create the missing transfer channel since Twilio didn't send us a webhook for it
-            # This happens when transfers create new calls that we don't get webhook notifications for
-            logger.info(f"STRATEGY 1B: Creating missing transfer channel for SID {dial_call_sid}")
-            parent_channel = call.channels.filtered(lambda c: not c.parent_channel)[0]  # Parent channel
-            
-            # Find transfer target user from transferred_users
-            if call.transferred_users:
-                transfer_target_user = call.transferred_users[-1]  # Most recent transfer
-                logger.info(f"STRATEGY 1B: Looking for PBX user for transfer target {transfer_target_user.login} (ID: {transfer_target_user.id})")
-                
-                # Find the PBX user for this Odoo user
-                pbx_user = self.env['connect.user'].search([('user', '=', transfer_target_user.id)], limit=1)
-                logger.info(f"STRATEGY 1B: PBX user search result: {pbx_user.name if pbx_user else 'None found'}")
-                
-                if pbx_user:
-                    # Create the missing transfer channel
-                    channel_data = {
-                        'sid': dial_call_sid,
-                        'call': call.id,
-                        'parent_channel': parent_channel.id,
-                        'technical_direction': 'outbound-dial',
-                        'status': dial_status,
-                        'duration': int(params.get('DialCallDuration', 0)),
-                        'called_pbx_user': pbx_user.id,
-                        'called_user': transfer_target_user.id,
-                        'call_source': 'transfer',  # Explicitly tag as transfer
-                        'caller': original_channel.caller,
-                        'called': pbx_user.uri
-                    }
-                    
-                    logger.info(f"STRATEGY 1B: Creating channel with data: {channel_data}")
-                    recipient_channel = self.env['connect.channel'].create(channel_data)
-                    logger.info(f"STRATEGY 1B SUCCESS: Created transfer channel {recipient_channel.id} for {transfer_target_user.login}")
-                    
-                    # Force refresh the call's channels to include the newly created channel
-                    call.invalidate_cache(['channels'])
-                    test_channel = call.channels.filtered(lambda c: c.id == recipient_channel.id)
-                    logger.info(f"STRATEGY 1B: Channel verification - found in call.channels: {bool(test_channel)}")
+        # SIMULTANEOUS_RINGS: For ring groups, find existing recipient channel
+        # Ring groups create channels for all users upfront, so recipient channel should exist
+        recipient_channel = None
+        if call.call_pattern == 'ring_group':
+            child_channels = call.channels.filtered(lambda c: c.parent_channel)
+            if child_channels:
+                # Sort by ID (creation order) and look for the most recent one that's not completed
+                potential_recipients = child_channels.filtered(lambda c: c.status in ['no-answer', 'ringing', 'in-progress'])
+                if potential_recipients:
+                    recipient_channel = potential_recipients.sorted('id', reverse=True)[0]
+                    logger.info(f"SIMULTANEOUS_RINGS: Using existing channel {recipient_channel.id} as recipient")
                 else:
-                    logger.warning(f"STRATEGY 1B FAILED: Could not find PBX user for {transfer_target_user.login}")
-            else:
-                logger.warning(f"STRATEGY 1B FAILED: No transferred_users found in call {call.id}")
-            
-            if not recipient_channel:
-                # STRATEGY 2: Find the most recent channel that's NOT the transfer initiator
-                # Based on the logs, Jason's channel should be the most recent one created
-                child_channels = call.channels.filtered(lambda c: c.parent_channel)
-                if child_channels:
-                    # Sort by ID (creation order) and look for the most recent one that's not completed
-                    potential_recipients = child_channels.filtered(lambda c: c.status in ['no-answer', 'ringing', 'in-progress'])
-                    if potential_recipients:
-                        recipient_channel = potential_recipients.sorted('id', reverse=True)[0]
-                        logger.info(f"STRATEGY 2: Using most recent non-completed channel {recipient_channel.id} as recipient")
-                    else:
-                        logger.info(f"STRATEGY 2: No existing recipient channels found, will create transfer channel")
-                        # For direct calls, there might not be an existing channel for the transfer target
-                        # Try to create the transfer channel based on the DialCallSid and webhook params
-                        recipient_channel = self._create_missing_transfer_channel(call, dial_call_sid, dial_status, params)
-                        if recipient_channel:
-                            logger.info(f"STRATEGY 2: Created missing transfer channel {recipient_channel.id}")
-                        else:
-                            logger.warning(f"STRATEGY 2 FAILED: Could not create missing transfer channel")
-                            return
-                else:
-                    logger.warning(f"STRATEGY 2 FAILED: No child channels found")
+                    logger.error(f"SIMULTANEOUS_RINGS: No suitable recipient channels found for ring group call {call.id}")
                     return
+            else:
+                logger.error(f"SIMULTANEOUS_RINGS: No child channels found for ring group call {call.id}")
+                return
+        
+        # DIRECT_CALLS: For direct calls, create missing transfer channel 
+        # Direct calls don't create channels for transfer targets, so we need to create them
+        elif call.call_pattern == 'direct_call':
+            logger.info(f"DIRECT_CALLS: Creating transfer channel for direct call transfer")
+            recipient_channel = self._create_missing_transfer_channel(call, dial_call_sid, dial_status, params)
+            if recipient_channel:
+                logger.info(f"DIRECT_CALLS: Created missing transfer channel {recipient_channel.id}")
+            else:
+                logger.error(f"DIRECT_CALLS: Could not create missing transfer channel for call {call.id}")
+                return
+        
+        # UNKNOWN_PATTERN: Fail explicitly for unknown call patterns
+        else:
+            logger.error(f"UNKNOWN_PATTERN: Cannot process transfer completion for call {call.id} with unknown pattern '{call.call_pattern}'. Transfer processing aborted to prevent incorrect field population.")
+            return
         
         if recipient_channel and recipient_channel.called_pbx_user:
             logger.info(f"Transfer recipient identified: {recipient_channel.called_pbx_user.name} (Channel {recipient_channel.id})")
