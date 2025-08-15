@@ -539,13 +539,27 @@ class CallForwardHandler(models.TransientModel):
                 call = self.env['connect.call'].browse(call.id)
                 logger.info(f'Attempt {attempt + 1}: Call has {len(call.channels)} channels')
                 
-                for i, channel in enumerate(call.channels):
-                    logger.info(f'  Channel {i+1}: SID={channel.sid}, direction={channel.technical_direction}, status={channel.status}')
-                    
-                    if channel.technical_direction == 'outbound-dial':
-                        external_call_sid = channel.sid
-                        logger.info(f'✓ Found external call leg: {external_call_sid}')
-                        break
+                # Also search for channels by ParentCallSid (more reliable than call.channels)
+                parent_channel = call.channels.filtered(lambda c: c.technical_direction == 'inbound')
+                if parent_channel:
+                    child_channels = self.env['connect.channel'].search([('parent_sid', '=', parent_channel[0].sid)])
+                    logger.info(f'Found {len(child_channels)} child channels via ParentCallSid search')
+                    for channel in child_channels:
+                        logger.info(f'  Child Channel: SID={channel.sid}, direction={channel.technical_direction}, status={channel.status}')
+                        if channel.technical_direction == 'outbound-dial':
+                            external_call_sid = channel.sid
+                            logger.info(f'✓ Found external call leg via ParentCallSid: {external_call_sid}')
+                            break
+                
+                # Fallback: search call.channels as before
+                if not external_call_sid:
+                    for i, channel in enumerate(call.channels):
+                        logger.info(f'  Channel {i+1}: SID={channel.sid}, direction={channel.technical_direction}, status={channel.status}')
+                        
+                        if channel.technical_direction == 'outbound-dial':
+                            external_call_sid = channel.sid
+                            logger.info(f'✓ Found external call leg: {external_call_sid}')
+                            break
                 
                 if external_call_sid:
                     break
