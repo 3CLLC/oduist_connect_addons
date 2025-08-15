@@ -112,3 +112,27 @@ class ConnectController(Controller):
         message = request.env['connect.message'].with_user(request.env.ref("connect.user_connect_webhook"))
         res = message.receive(kw)
         return f'{res}'
+
+    @route('/twilio/webhook/transfer_continuation', methods=['POST'], type='http', auth='public', csrf=False)
+    def transfer_continuation_webhook(self, **kw):
+        """
+        Handle action callback from transfer dial completion
+        This is critical for maintaining external party connection during outgoing call transfers
+        """
+        if not self.check_signature(kw):
+            return '<Response><Say>Invalid Twilio request!</Say></Response>'
+        
+        logger.info(f'=== TRANSFER CONTINUATION WEBHOOK RECEIVED ===')
+        logger.info(f'CallSid: {kw.get("CallSid")}')
+        logger.info(f'DialCallStatus: {kw.get("DialCallStatus")}')
+        logger.info(f'DialCallSid: {kw.get("DialCallSid")}')
+        logger.info(f'All webhook params: {kw}')
+        
+        # Use the transfer wizard to handle continuation logic
+        transfer_wizard = request.env['connect.transfer_wizard'].with_user(request.env.ref("connect.user_connect_webhook"))
+        res = transfer_wizard.handle_transfer_continuation(kw)
+        
+        logger.info(f'Transfer continuation response: {res}')
+        logger.info(f'=== END TRANSFER CONTINUATION WEBHOOK ===')
+        
+        return f'{res}'

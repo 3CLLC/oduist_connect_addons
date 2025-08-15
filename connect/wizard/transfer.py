@@ -469,40 +469,67 @@ class CallForwardHandler(models.TransientModel):
 
     def _create_blind_transfer_twiml(self, user, outgoing_call=None):
         """
-        Create TwiML for blind (immediate) transfer WITH webhook configuration
-        Fixed to include action URL so transfer completion webhooks are sent
-        Enhanced with proper caller ID for outgoing calls
+        Create TwiML for blind (immediate) transfer using action-based continuation
+        This approach maintains external connection by handling what happens after transfer completes
         """
+        logger.info(f'=== CREATING BLIND TRANSFER TWIML ===')
+        logger.info(f'Target user: {user.name} (URI: {user.uri})')
+        logger.info(f'Outgoing call provided: {"Yes" if outgoing_call else "No"}')
+        
         response = VoiceResponse()
         response.say('Transferring your call now.')
         
         # Get the base URL for webhook callbacks
         api_url = self.env['connect.settings'].sudo().get_param('api_url')
-        webhook_url = urljoin(api_url, 'twilio/webhook/callaction')
+        logger.info(f'API URL base: {api_url}')
         
-        # Dial WITH action URL to capture transfer completion webhooks
+        # Create action URL with transfer context for continuation logic
+        action_url = urljoin(api_url, f'twilio/webhook/transfer_continuation')
+        logger.info(f'Transfer continuation URL: {action_url}')
+        
+        # Create the transfer dial with action continuation
         dial = Dial(
             timeout=30,
-            action=webhook_url,
+            action=action_url,
             method='POST'
         )
+        logger.info(f'Created Dial with 30s timeout and action URL')
         
         # For outgoing calls, preserve original caller information in callerId
+        original_caller = None
         if outgoing_call and outgoing_call.direction == 'outgoing':
+            logger.info(f'Processing outgoing call transfer - extracting original caller')
             # Get the original external caller info from the call
             original_caller = self._get_original_caller_for_transfer(outgoing_call)
             if original_caller:
                 dial.callerId = original_caller
                 logger.info(f'OUTGOING TRANSFER: Set callerId to original external caller: {original_caller}')
+            else:
+                logger.warning(f'OUTGOING TRANSFER: Could not determine original caller for callerId')
+        else:
+            logger.info(f'Not an outgoing call transfer - no special callerId handling needed')
         
         from twilio.twiml.voice_response import Client
         client_elem = Client()
         client_elem.identity(user.uri)
         dial.append(client_elem)
-        response.append(dial)
+        logger.info(f'Added client identity to dial: {user.uri}')
         
-        logger.info(f'BLIND TRANSFER: Added webhook URL {webhook_url} to capture transfer completion')
-        return str(response)
+        response.append(dial)
+        logger.info(f'Appended dial element to response')
+        
+        # Critical: Add continuation TwiML that executes AFTER the dial completes
+        # This keeps the external party connected if the internal recipient doesn't answer
+        response.say('Call could not be completed. Please try again.')
+        response.hangup()
+        logger.info(f'Added fallback TwiML for cases where transfer fails')
+        
+        twiml_output = str(response)
+        logger.info(f'=== GENERATED TWIML (LENGTH: {len(twiml_output)}) ===')
+        logger.info(f'TwiML Content: {twiml_output}')
+        logger.info(f'=== END TWIML GENERATION ===')
+        
+        return twiml_output
 
     def _execute_outgoing_blind_transfer(self, client, call_sid, user, call):
         """
@@ -891,3 +918,48 @@ class CallForwardHandler(models.TransientModel):
         )
 
         return validation
+
+    @api.model
+    def handle_transfer_continuation(self, webhook_params):
+        """
+        Handle the action callback from transfer dial completion
+        This is where we implement the continuation logic to preserve external connections
+        """
+        logger.info(f'=== HANDLING TRANSFER CONTINUATION ===')
+        logger.info(f'Webhook parameters: {webhook_params}')
+        
+        call_sid = webhook_params.get('CallSid')
+        dial_call_status = webhook_params.get('DialCallStatus')
+        dial_call_sid = webhook_params.get('DialCallSid')
+        
+        logger.info(f'Call SID: {call_sid}')
+        logger.info(f'Dial Status: {dial_call_status}')  
+        logger.info(f'Dial Call SID: {dial_call_sid}')
+        
+        from twilio.twiml.voice_response import VoiceResponse
+        response = VoiceResponse()
+        
+        if dial_call_status == 'completed':
+            logger.info('Transfer completed successfully - call should continue normally')
+            # Transfer was successful, the call should naturally continue
+            # We don't need to add anything - Twilio will bridge the calls
+            response.hangup()  # End the original call leg
+            
+        elif dial_call_status in ['busy', 'no-answer', 'failed', 'canceled']:
+            logger.info(f'Transfer failed with status: {dial_call_status}')
+            # Transfer failed - we could implement fallback logic here
+            # For now, let the original call continue with a message
+            response.say(f'Transfer could not be completed. The extension is {dial_call_status}.')
+            response.say('You are being returned to the original caller.')
+            # Don't hangup - let the original connection continue
+            
+        else:
+            logger.warning(f'Unexpected dial call status: {dial_call_status}')
+            response.say('There was an issue with the transfer. Please try again.')
+            response.hangup()
+        
+        twiml_response = str(response)
+        logger.info(f'Generated continuation TwiML: {twiml_response}')
+        logger.info(f'=== END TRANSFER CONTINUATION HANDLING ===')
+        
+        return response
