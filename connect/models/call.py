@@ -366,13 +366,14 @@ class Call(models.Model):
     def _populate_outgoing_call_user_fields(self):
         """
         Populate user fields for outgoing calls (internal user calling external party).
+        called_users: External recipient (original target of outgoing call)
         answered_user: External recipient (if they answered) - Odoo contact or phone number
         completed_by_user: Last internal person who handled the call (caller or transfer recipient)
         """
         self.ensure_one()
         logger.info(f"Call {self.id}: Populating user fields for outgoing call")
         
-        # ANSWERED USER: Set to external recipient only if they actually answered
+        # Find the outbound-dial channel (represents the external party)
         outbound_channel = None
         for channel in self.channels:
             if channel.technical_direction == 'outbound-dial':
@@ -380,17 +381,25 @@ class Call(models.Model):
                 break
         
         if outbound_channel:
-            # Check if external party actually answered (not voicemail/no-answer)
+            # CALLED USERS: Set to external recipient (original target of outgoing call)
+            external_number = outbound_channel.called_number
+            if outbound_channel.partner and outbound_channel.partner.user_id:
+                # External party has an Odoo user account - use that
+                self.called_users = [(4, outbound_channel.partner.user_id.id)]
+                logger.info(f"Call {self.id}: called_users set to Odoo contact {outbound_channel.partner.name}")
+            else:
+                # No Odoo user for external party - called_users will remain empty
+                # The phone number is tracked in the 'called' field
+                logger.info(f"Call {self.id}: External party {external_number} has no Odoo user - called_users empty")
+            
+            # ANSWERED USER: Set to external recipient only if they actually answered
             external_answered = (outbound_channel.status in ['in-progress', 'completed'] and 
                                outbound_channel.duration and outbound_channel.duration > 0)
             
             if external_answered:
-                # External party answered - set answered_user to external recipient
-                # Try to find Odoo contact first, fallback to phone number
-                external_number = outbound_channel.called_number
-                if outbound_channel.partner:
-                    # Found Odoo contact
-                    self.answered_user = outbound_channel.partner.user_id if outbound_channel.partner.user_id else None
+                # External party answered - set answered_user to same as called_users
+                if outbound_channel.partner and outbound_channel.partner.user_id:
+                    self.answered_user = outbound_channel.partner.user_id
                     logger.info(f"Call {self.id}: answered_user set to Odoo contact {outbound_channel.partner.name}")
                 else:
                     # No Odoo contact found - would need to create a user record for phone number
