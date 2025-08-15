@@ -787,24 +787,30 @@ class Call(models.Model):
             # try to pick the most likely candidate based on recent activity or alphabetical order
             # This is not perfect but better than failing entirely
             
-            # For now, let's try a different approach:
-            # Look at the most recent transfer activity in any call to see if there's a pattern
-            recent_transfers = self.env['connect.call'].sudo().search([
-                ('transferred_users', '!=', False),
-                ('id', '!=', call.id)
-            ], limit=1, order='id desc')
-            
+            # Try multiple strategies to determine transfer target:
             target_user = None
-            if recent_transfers and recent_transfers[0].transferred_users:
-                # Use the same user as the most recent transfer (common pattern)
-                target_user = recent_transfers[0].transferred_users[-1]
-                logger.info(f"Using recent transfer target: {target_user.login}")
-            else:
-                # Fallback: Use the first available user (not ideal but better than nothing)
-                # In practice, you might want to add more sophisticated logic here
-                target_pbx_user = available_pbx_users[0]
-                target_user = target_pbx_user.user
-                logger.info(f"Using fallback transfer target: {target_user.login}")
+            
+            # STRATEGY A: Check current call's transferred_users (set during transfer initiation)
+            call_with_sudo = call.sudo()  # Ensure we can read the field
+            if call_with_sudo.transferred_users:
+                target_user = call_with_sudo.transferred_users[-1]  # Most recent transfer target
+                logger.info(f"Using current call transfer target: {target_user.login}")
+            
+            # STRATEGY B: Fallback to previous transfer pattern (existing logic)
+            if not target_user:
+                recent_transfers = self.env['connect.call'].sudo().search([
+                    ('transferred_users', '!=', False),
+                    ('id', '!=', call.id)
+                ], limit=1, order='id desc')
+                
+                if recent_transfers and recent_transfers[0].transferred_users:
+                    target_user = recent_transfers[0].transferred_users[-1]
+                    logger.info(f"Using recent transfer target as fallback: {target_user.login}")
+                else:
+                    # Last resort: Use first available user
+                    target_pbx_user = available_pbx_users[0]
+                    target_user = target_pbx_user.user
+                    logger.info(f"Using first available user as fallback: {target_user.login}")
             
             if not target_user:
                 logger.warning(f"Could not determine transfer target user")
