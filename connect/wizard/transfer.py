@@ -562,6 +562,9 @@ class CallForwardHandler(models.TransientModel):
                 twiml=str(target_response)
             )
             
+            # Create a channel record for the transfer target call so completion can be tracked
+            self._create_transfer_target_channel(call, target_call.sid, user)
+            
             logger.info(f'OUTGOING BLIND TRANSFER: Successfully created bridge')
             logger.info(f'Conference: {conference_name}')
             logger.info(f'External call moved to conference: {external_call_sid}')
@@ -608,6 +611,52 @@ class CallForwardHandler(models.TransientModel):
             
         except Exception as e:
             logger.error(f'Error getting original caller for transfer: {e}')
+            return None
+
+    def _create_transfer_target_channel(self, call, target_call_sid, user):
+        """
+        Create a channel record for the transfer target call to enable completion tracking
+        This ensures the system knows who answered/completed the transferred call
+        """
+        try:
+            logger.info(f'Creating transfer target channel for call {target_call_sid}')
+            
+            # Find a parent channel to associate with
+            parent_channel = None
+            for channel in call.channels:
+                if channel.technical_direction in ['inbound', 'outbound-dial']:
+                    parent_channel = channel
+                    break
+            
+            if not parent_channel:
+                logger.warning(f'No suitable parent channel found for transfer target channel')
+                return None
+            
+            # Create channel record for transfer target
+            channel_data = {
+                'sid': target_call_sid,
+                'call': call.id,
+                'parent_channel': parent_channel.id,
+                'technical_direction': 'outbound-dial',
+                'status': 'initiated',  # Will be updated by webhooks
+                'duration': 0,
+                'called_pbx_user': user.id,
+                'called_user': user.user.id if user.user else None,
+                'call_source': 'transfer',
+                'caller': parent_channel.caller,  # Keep original caller info
+                'called': user.uri,
+            }
+            
+            # Use sudo to avoid permission issues during channel creation
+            transfer_channel = self.env['connect.channel'].sudo().create(channel_data)
+            
+            logger.info(f'Created transfer target channel {transfer_channel.id} for user {user.name}')
+            logger.info(f'Channel SID: {target_call_sid}, Call: {call.id}, User: {user.user.login if user.user else "No Odoo User"}')
+            
+            return transfer_channel
+            
+        except Exception as e:
+            logger.error(f'Failed to create transfer target channel: {e}', exc_info=True)
             return None
 
     def _create_attended_transfer_twiml(self, user, call_sid):
