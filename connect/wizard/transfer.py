@@ -403,7 +403,22 @@ class CallForwardHandler(models.TransientModel):
             is_outgoing_call = False
             if call and call.exists():
                 is_outgoing_call = call.direction == 'outgoing'
-                logger.info(f'Call direction detected: {call.direction} (outgoing={is_outgoing_call})')
+                logger.info(f'=== CALL ANALYSIS FOR TRANSFER ===')
+                logger.info(f'Call ID: {call.id}, Direction: {call.direction} (outgoing={is_outgoing_call})')
+                logger.info(f'Called: {call.called}, Caller: {call.caller}')
+                logger.info(f'Call Pattern: {call.call_pattern}')
+                logger.info(f'Number of channels: {len(call.channels)}')
+                
+                # Log current user context for debugging user-specific issues
+                current_user = self.env.user
+                logger.info(f'Current Odoo user: {current_user.login} (ID: {current_user.id})')
+                
+                # See if we can identify which connect.user is involved
+                connect_user = self.env['connect.user'].search([('user', '=', current_user.id)], limit=1)
+                if connect_user:
+                    logger.info(f'Connect user: {connect_user.name} (URI: {connect_user.uri})')
+                else:
+                    logger.info('No connect.user found for current Odoo user')
             
             # Use different transfer approaches for outgoing vs incoming calls
             if is_outgoing_call and transfer_type == 'blind':
@@ -503,15 +518,24 @@ class CallForwardHandler(models.TransientModel):
             # The current call_sid is the parent (internal), we need the child (external)
             
             # Step 1: Find the external call leg (outbound-dial direction)
+            logger.info(f'=== DEBUGGING EXTERNAL CALL LEG DETECTION ===')
+            logger.info(f'Call ID: {call.id}, Direction: {call.direction}')
+            logger.info(f'Number of channels: {len(call.channels)}')
+            
             external_call_sid = None
-            for channel in call.channels:
+            for i, channel in enumerate(call.channels):
+                logger.info(f'Channel {i+1}: SID={channel.sid}, direction={channel.technical_direction}, status={channel.status}')
+                logger.info(f'  Called: {channel.called_number}, Caller: {channel.caller}')
+                logger.info(f'  Call source: {getattr(channel, "call_source", "N/A")}')
+                
                 if channel.technical_direction == 'outbound-dial':
                     external_call_sid = channel.sid
-                    logger.info(f'Found external call leg: {external_call_sid}')
+                    logger.info(f'✓ Found external call leg: {external_call_sid}')
                     break
             
             if not external_call_sid:
-                logger.error('Could not find external call leg for outgoing transfer')
+                logger.error('❌ Could not find external call leg for outgoing transfer')
+                logger.error('Available channel directions: ' + ', '.join([f'{ch.sid}:{ch.technical_direction}' for ch in call.channels]))
                 return False
             
             # Step 2: Create a conference to bridge the calls
