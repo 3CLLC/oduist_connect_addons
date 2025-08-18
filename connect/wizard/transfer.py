@@ -705,7 +705,7 @@ class CallForwardHandler(models.TransientModel):
         dial_call_sid = webhook_params.get('DialCallSid')
         
         # Find the call record
-        call_channel = self.env['connect.channel'].sudo().search([('twilio_call_sid', '=', call_sid)], limit=1)
+        call_channel = self.env['connect.channel'].sudo().search([('sid', '=', call_sid)], limit=1)
         if not call_channel or not call_channel.call:
             logger.warning(f'Could not find call for transfer continuation: {call_sid}')
             response = VoiceResponse()
