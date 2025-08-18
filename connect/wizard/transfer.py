@@ -370,12 +370,12 @@ class CallForwardHandler(models.TransientModel):
                     # Try to find the call record from the session_id
                     call = None
                     if call_id:
-                        call = self.env['connect.call'].browse(call_id)
+                        call = self.env['connect.call'].sudo().browse(call_id)
                         logger.info(f'Using provided call_id {call_id} for transfer tracking')
                     
                     if not call or not call.exists():
                         # Fallback: Find call by looking up channel with session_id
-                        channel = self.env['connect.channel'].search([('sid', '=', session_id)], limit=1)
+                        channel = self.env['connect.channel'].sudo().search([('sid', '=', session_id)], limit=1)
                         if channel and channel.call:
                             call = channel.call
                             logger.info(f'Found call {call.id} via channel lookup for session {session_id}')
