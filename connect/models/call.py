@@ -694,9 +694,14 @@ class Call(models.Model):
         # Set called from 2nd call leg for click2call external calls.
         if channel.parent_channel and channel.parent_channel.technical_direction == 'outbound-api':
             channel.call.called = channel.called_number
-        # Set called users
-        if channel.called_user:
+        # Set called users - only during initial call setup, never modify after transfers
+        if channel.called_user and not channel.parent_channel:
+            # Only set called_users for parent channels (original call setup)
+            # Never modify called_users for child channels (transfers, etc.)
             channel.call.called_users = [(4, channel.called_user.id)]
+            logger.info(f"Added {channel.called_user.login} to called_users during initial call setup for call {channel.call.id}")
+        elif channel.called_user and channel.parent_channel:
+            logger.info(f"Skipped adding {channel.called_user.login} to called_users - this is a child channel (transfer/secondary call)")
         if channel.called_pbx_user:
             channel.call.called_pbx_users = [(4, channel.called_pbx_user.id)]
         # Check if we need to set a partner from child channel
