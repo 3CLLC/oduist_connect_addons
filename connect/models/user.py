@@ -516,16 +516,44 @@ class User(models.Model):
         response = VoiceResponse()
         user = self.browse(record_id)
         
-        # Mirror the ring group logic: if call was completed, just hangup
-        # This prevents external callers from falling through to voicemail
         if request.get('DialCallStatus') == 'completed':
+            # Call was completed - hang up external caller to prevent voicemail fall-through
             logger.info(f'Direct call completed - hanging up external caller')
             response.hangup()
         else:
-            # Call was not completed - allow voicemail to proceed
-            # This maintains existing voicemail behavior for failed calls
-            logger.info(f'Direct call not completed (status: {request.get("DialCallStatus")}) - allowing voicemail')
-            # Don't add any TwiML - let the call continue to voicemail naturally
+            # Call was not completed - provide voicemail if enabled
+            logger.info(f'Direct call not completed (status: {request.get("DialCallStatus")}) - checking voicemail settings')
+            
+            if user.voicemail_enabled:
+                # Voicemail is enabled - provide voicemail with appropriate prompt
+                api_url = self.env['connect.settings'].sudo().get_param('api_url')
+                record_status_url = urljoin(api_url, 'twilio/webhook/vm_recordingstatus')
+                
+                response.pause(length=1)
+                
+                if user.voicemail_prompt:
+                    # User has personalized voicemail prompt
+                    personalized_prompt = user.render_voicemail_prompt()
+                    response.say(personalized_prompt)
+                    logger.info(f'Using personalized voicemail prompt for {user.name}')
+                else:
+                    # User has voicemail enabled but no personalized prompt - use generic with name
+                    generic_prompt = f'{user.name} is not available. Please leave a message.'
+                    response.say(generic_prompt)
+                    logger.info(f'Using generic voicemail prompt for {user.name}')
+                
+                response.record(
+                    maxLength=120,
+                    finishOnKey='#',
+                    playBeep=True,
+                    recordingStatusCallback=record_status_url)
+                    
+            else:
+                # Voicemail is completely disabled - generic message and hangup
+                response.say('Sorry, I could not connect your call. Please try again later. Goodbye!')
+                response.pause(length=1) 
+                response.hangup()
+                logger.info(f'Voicemail disabled for {user.name} - using generic hangup message')
         
         debug(self, pretty_xml(str(response)))
         return response
