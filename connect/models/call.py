@@ -962,6 +962,104 @@ class Call(models.Model):
             logger.error(f"Failed to create missing transfer channel: {e}", exc_info=True)
             return None
 
+    def _format_missed_call_message(self, channel):
+        """
+        Create a clean, professional missed call message format.
+        Format: "Missed call from <name> (<number>)\n<month> <day>, <year> at <time> EST/EDT"
+        """
+        # Get caller information
+        caller_name = None
+        caller_number = None
+        
+        if channel.call.direction == 'incoming':
+            caller_number = channel.call.caller
+            # Try to get contact name from partner
+            if channel.call.partner:
+                caller_name = channel.call.partner.name
+            elif channel.call.caller_user:
+                caller_name = channel.call.caller_user.name
+        else:  # outgoing call
+            caller_number = channel.call.called
+            # For outgoing calls, the "caller" from user perspective is who they called
+            if channel.call.partner:
+                caller_name = channel.call.partner.name
+        
+        # Format the caller display
+        if caller_name and caller_number:
+            caller_display = f"{caller_name} ({caller_number})"
+        elif caller_name:
+            caller_display = caller_name
+        elif caller_number:
+            caller_display = caller_number
+        else:
+            caller_display = "Unknown"
+        
+        # Convert to Eastern Time
+        call_datetime = channel.create_date
+        try:
+            import pytz
+            eastern = pytz.timezone('US/Eastern')
+            utc_datetime = pytz.utc.localize(call_datetime)
+            eastern_datetime = utc_datetime.astimezone(eastern)
+            
+            # Determine if EST or EDT
+            timezone_name = eastern_datetime.strftime('%Z')  # EST or EDT
+            formatted_date = eastern_datetime.strftime(f'%B %d, %Y at %I:%M %p {timezone_name}')
+        except:
+            # Fallback if timezone conversion fails
+            formatted_date = call_datetime.strftime('%B %d, %Y at %I:%M %p EST')
+        
+        return f"Missed call from {caller_display}\n{formatted_date}"
+    
+    def _format_missed_transfer_message(self, channel):
+        """
+        Create a clean missed transfer message format.
+        """
+        # Get original caller information
+        caller_name = None
+        caller_number = None
+        
+        if channel.call.direction == 'incoming':
+            caller_number = channel.call.caller
+            if channel.call.partner:
+                caller_name = channel.call.partner.name
+            elif channel.call.caller_user:
+                caller_name = channel.call.caller_user.name
+        else:
+            caller_number = channel.call.called
+            if channel.call.partner:
+                caller_name = channel.call.partner.name
+        
+        # Format caller display
+        if caller_name and caller_number:
+            caller_display = f"{caller_name} ({caller_number})"
+        elif caller_name:
+            caller_display = caller_name
+        elif caller_number:
+            caller_display = caller_number
+        else:
+            caller_display = "Unknown"
+        
+        # Convert to Eastern Time
+        call_datetime = channel.create_date
+        try:
+            import pytz
+            eastern = pytz.timezone('US/Eastern')
+            utc_datetime = pytz.utc.localize(call_datetime)
+            eastern_datetime = utc_datetime.astimezone(eastern)
+            
+            timezone_name = eastern_datetime.strftime('%Z')
+            formatted_date = eastern_datetime.strftime(f'%B %d, %Y at %I:%M %p {timezone_name}')
+        except:
+            formatted_date = call_datetime.strftime('%B %d, %Y at %I:%M %p EST')
+        
+        # Add transfer context
+        transfer_info = ""
+        if channel.call.answered_user:
+            transfer_info = f"\nOriginally answered by: {channel.call.answered_user.name}"
+        
+        return f"Missed transfer from {caller_display}{transfer_info}\n{formatted_date}"
+
     def register_call(self, channel, params):
         try:
             notify_users = []
@@ -1039,35 +1137,25 @@ class Call(models.Model):
                 
                 # Send regular missed call notifications to non-transfer users
                 if regular_missed_users:
-                    final_message = ' '.join(message)
-                    if final_message.endswith(', '):
-                        final_message = final_message[:-2] + '.'
+                    # Use clean message format for missed call notifications
+                    clean_message = channel.call._format_missed_call_message(channel)
                     channel.call.register_call_post_message(
                         channel.call,
                         subtype_xmlid='mail.mt_comment',
-                        subject=channel.call.name,
-                        body=final_message,
+                        subject="Missed Call",
+                        body=clean_message,
                         partner_ids=[k.partner_id.id for k in regular_missed_users]
                     )
                 
                 # Send transfer-specific missed call notifications
                 if transfer_missed_users:
-                    transfer_message = ['Missed transfer from', channel.call.direction,
-                                     'call at {}, '.format(channel.create_date.strftime('%Y-%m-%d %H:%M:%S'))]
-                    if channel.call.caller_user:
-                        transfer_message.append('caller: {}, '.format(channel.call.caller_user.name))
-                    if channel.call.answered_user:
-                        transfer_message.append('initially answered by: {}, '.format(channel.call.answered_user.name))
-                    
-                    transfer_final_message = ' '.join(transfer_message)
-                    if transfer_final_message.endswith(', '):
-                        transfer_final_message = transfer_final_message[:-2] + '.'
-                        
+                    # Use clean message format for missed transfer notifications
+                    clean_transfer_message = channel.call._format_missed_transfer_message(channel)
                     channel.call.register_call_post_message(
                         channel.call,
                         subtype_xmlid='mail.mt_comment',
-                        subject=f"Missed Transfer - {channel.call.name}",
-                        body=transfer_final_message,
+                        subject="Missed Transfer",
+                        body=clean_transfer_message,
                         partner_ids=[k.partner_id.id for k in transfer_missed_users]
                     )
             # Clear temporary transfer context after call processing is complete
