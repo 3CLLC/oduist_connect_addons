@@ -268,6 +268,8 @@ class User(models.Model):
         api_url = self.env['connect.settings'].sudo().get_param('api_url')
         record_status_url = urljoin(api_url, 'twilio/webhook/recordingstatus')
         status_url = urljoin(api_url, 'twilio/webhook/callstatus')
+        # Add action URL for direct calls to prevent voicemail fall-through on completed calls
+        action_url = urljoin(api_url, f'twilio/webhook/connect.user/call_action/{self.id}')
         response = VoiceResponse()
         
         # Greet the caller
@@ -280,11 +282,16 @@ class User(models.Model):
         
         # Only create SIP dial if SIP is enabled
         if self.sip_enabled:
-            # For transfer redirects, use action URL for completion tracking
-            action_url = urljoin(api_url, 'connect/dial_complete') if is_transfer_redirect else None
+            # For transfer redirects, use dial_complete action URL for completion tracking
+            # For regular calls, use call_action URL to prevent voicemail fall-through
+            if is_transfer_redirect:
+                dial_action_url = urljoin(api_url, 'connect/dial_complete')
+            else:
+                dial_action_url = action_url
+            
             dial_sip_kwargs = {'timeout': self.sip_ring_timeout, 'callerId': callerId}
-            if action_url:
-                dial_sip_kwargs['action'] = action_url
+            if dial_action_url:
+                dial_sip_kwargs['action'] = dial_action_url
                 dial_sip_kwargs['method'] = 'POST'
             if self.record_calls:
                 dial_sip_kwargs.update({
@@ -299,11 +306,16 @@ class User(models.Model):
 
         # Only create client dial if client is enabled
         if self.client_enabled:
-            # For transfer redirects, use action URL for completion tracking
-            action_url = urljoin(api_url, 'connect/dial_complete') if is_transfer_redirect else None
+            # For transfer redirects, use dial_complete action URL for completion tracking
+            # For regular calls, use call_action URL to prevent voicemail fall-through
+            if is_transfer_redirect:
+                dial_action_url = urljoin(api_url, 'connect/dial_complete')
+            else:
+                dial_action_url = action_url
+            
             dial_client_kwargs = {'timeout': self.client_ring_timeout, 'callerId': callerId}
-            if action_url:
-                dial_client_kwargs['action'] = action_url
+            if dial_action_url:
+                dial_client_kwargs['action'] = dial_action_url
                 dial_client_kwargs['method'] = 'POST'
             if self.record_calls:
                 dial_client_kwargs.update({
@@ -496,10 +508,25 @@ class User(models.Model):
 
     @api.model
     def on_call_action(self, record_id, request):
-        # Was used for VoiceMail. Left for future features.
-        debug(self, 'Call action: {}'.format(json.dumps(request, indent=2)))
+        """Handle Dial completion for direct calls - prevents voicemail fall-through on completed calls"""
+        logger.info(f'=== USER CALL ACTION HANDLER ===')
+        logger.info(f'User: {record_id}, DialCallStatus: {request.get("DialCallStatus")}')
+        logger.info(f'Request: {json.dumps(request, indent=2)}')
+        
         response = VoiceResponse()
         user = self.browse(record_id)
+        
+        # Mirror the ring group logic: if call was completed, just hangup
+        # This prevents external callers from falling through to voicemail
+        if request.get('DialCallStatus') == 'completed':
+            logger.info(f'Direct call completed - hanging up external caller')
+            response.hangup()
+        else:
+            # Call was not completed - allow voicemail to proceed
+            # This maintains existing voicemail behavior for failed calls
+            logger.info(f'Direct call not completed (status: {request.get("DialCallStatus")}) - allowing voicemail')
+            # Don't add any TwiML - let the call continue to voicemail naturally
+        
         debug(self, pretty_xml(str(response)))
         return response
 
