@@ -56,8 +56,6 @@ class Call(models.Model):
     # Transfer tracking fields
     transferred_users = fields.Many2many('res.users', 'connect_call_transfer_rel', 'call_id', 'user_id', string='Transferred Users', readonly=True)
     completed_by_user = fields.Many2one('res.users', ondelete='set null', string='Completed By', readonly=True)
-    # Transfer completion tracking - prevents completion logic from overriding webhook-set values
-    transfer_completion_handled = fields.Boolean(default=False, readonly=True, help='True if transfer completion was handled by webhook')
     # Temporary transfer context for webhook processing (cleared after use)
     transfer_context = fields.Json(string='Transfer Context', readonly=True, help='Temporary storage for transfer targets during webhook processing')
     # Call pattern tracking
@@ -335,19 +333,19 @@ class Call(models.Model):
             logger.info(f"Call {self.id}: No completed channels found - leaving answered_user empty")
         
         # COMPLETED BY USER: User who actually completed the call
-        # Re-query completed channels to ensure we have any newly created transfer channels
-        all_user_channels = self.channels.filtered(lambda c: c.called_pbx_user and c.called_pbx_user.user)
-        completed_channels = all_user_channels.filtered(lambda c: c.status == 'completed')
-        
-        if completed_channels:
-            if self.transferred_users:
-                # Transfer occurred - check if transfer recipient completed the call
+        if self.transferred_users:
+            # Transfer occurred - check if completed_by_user was already set by extension handler
+            if not self.completed_by_user:
+                # Extension handler hasn't set completion yet - check for completed transfer channels
+                # Re-query completed channels to ensure we have any newly created transfer channels
+                all_user_channels = self.channels.filtered(lambda c: c.called_pbx_user and c.called_pbx_user.user)
+                completed_channels = all_user_channels.filtered(lambda c: c.status == 'completed')
+                
                 transfer_completed_channels = completed_channels.filtered(
                     lambda c: c.called_pbx_user.user in self.transferred_users
                 )
                 if transfer_completed_channels:
                     # Transfer recipient completed the call
-                    # Use same logic as ring groups - latest ID if multiple, otherwise just take it
                     if len(transfer_completed_channels) > 1:
                         final_channel = transfer_completed_channels.sorted('id')[-1]
                         logger.info(f"Call {self.id}: Multiple transfer completions, using latest: {final_channel.id}")
@@ -355,15 +353,16 @@ class Call(models.Model):
                         final_channel = transfer_completed_channels[0]
                     
                     self.completed_by_user = final_channel.called_pbx_user.user
-                    logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
+                    logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login} (from channel)")
                 else:
                     # Transfer failed, nobody completed the call
-                    self.completed_by_user = False
-                    logger.info(f"Call {self.id}: completed_by_user left empty (transfer failed - nobody completed)")
+                    logger.info(f"Call {self.id}: Transfer failed - completed_by_user left empty for missed call notifications")
             else:
-                # No transfer - original answerer completed
-                self.completed_by_user = self.answered_user
-                logger.info(f"Call {self.id}: completed_by_user set to original answerer {self.completed_by_user.login} (no transfer)")
+                logger.info(f"Call {self.id}: completed_by_user already set by extension handler: {self.completed_by_user.login}")
+        else:
+            # No transfer - original answerer completed
+            self.completed_by_user = self.answered_user
+            logger.info(f"Call {self.id}: completed_by_user set to original answerer {self.completed_by_user.login} (no transfer)")
 
     def _populate_outgoing_call_user_fields(self):
         """
@@ -498,28 +497,28 @@ class Call(models.Model):
         
         # COMPLETED BY USER: Person who completed the call
         if self.transferred_users:
-            # Check if transfer completion was already handled by webhook
-            if self.transfer_completion_handled:
-                logger.info(f"Call {self.id}: Transfer completion already handled by webhook - completed_by_user: {self.completed_by_user.login if self.completed_by_user else 'None'}")
-            else:
-                # Check if transfer recipient completed the call via channel records
-                all_completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user)
-                transfer_completed_channels = all_completed_channels.filtered(
-                    lambda c: c.called_pbx_user.user in self.transferred_users
-                )
+            # Transfer occurred - check if completed_by_user was already set by extension handler
+            if not self.completed_by_user:
+                # Extension handler hasn't set completion yet - check for completed transfer channels
+                transfer_completed_channels = []
+                for user in self.transferred_users:
+                    user_channels = self.channels.filtered(lambda c: c.called_user and c.called_user.id == user.id and c.status == 'completed')
+                    transfer_completed_channels.extend(user_channels)
+                
                 if transfer_completed_channels:
-                    # Transfer recipient completed - use most recent transfer completion
-                    final_channel = transfer_completed_channels.sorted('id')[-1]
-                    self.completed_by_user = final_channel.called_pbx_user.user
-                    logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login} (via channels)")
+                    # Use the most recent completed transfer channel
+                    latest_channel = sorted(transfer_completed_channels, key=lambda c: c.id)[-1]
+                    self.completed_by_user = latest_channel.called_user
+                    logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login} (from channel)")
                 else:
-                    # Transfer failed, nobody completed the call
-                    self.completed_by_user = False
-                    logger.info(f"Call {self.id}: completed_by_user left empty (transfer failed - nobody completed)")
+                    # No completed transfer channels - transfer failed, leave empty for missed call notifications
+                    logger.info(f"Call {self.id}: Transfer failed - completed_by_user left empty for missed call notifications")
+            else:
+                logger.info(f"Call {self.id}: completed_by_user already set by extension handler: {self.completed_by_user.login}")
         else:
             # No transfer - answered user also completed
             self.completed_by_user = self.answered_user
-            logger.info(f"Call {self.id}: completed_by_user set to answerer {self.completed_by_user.login} (no transfer)")
+            logger.info(f"Call {self.id}: completed_by_user set to answerer {self.answered_user.login} (no transfer)")
 
     def _populate_user_fields_fallback(self):
         """

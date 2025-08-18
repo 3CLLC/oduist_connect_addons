@@ -5,6 +5,7 @@ import jinja2
 import logging
 import re
 from urllib.parse import urljoin
+from datetime import timedelta
 from odoo import fields, models, api, release
 from odoo.exceptions import ValidationError
 from twilio.jwt.access_token import AccessToken
@@ -226,6 +227,21 @@ class User(models.Model):
         
         channel = self.env['connect.channel'].search([('sid', '=', request.get('CallSid'))])
         call = channel.call
+        
+        # TRANSFER DETECTION: Check if this is a transfer redirect to our extension
+        is_transfer_redirect = self._detect_transfer_redirect(request, params, call)
+        if is_transfer_redirect:
+            original_call = self._find_original_call_for_transfer(request, params)
+            if original_call:
+                logger.info(f'TRANSFER DETECTED: Extension {self.exten.number} receiving transfer from call {original_call.id}')
+                # Store this user as transfer target for later completion tracking
+                if self.user:
+                    original_call.add_transferred_user(self.user)
+                    # Store the redirect call SID for completion tracking
+                    original_call.store_transfer_context(request.get('CallSid'), self.user)
+                    logger.info(f'Added {self.user.login} as transfer target for call {original_call.id}')
+            else:
+                logger.warning(f'Could not find original call for transfer redirect to {self.name}')
         # Check callerid for client calls - but for transfer redirects, use the original external caller
         is_transfer_redirect = (
             params.get('Direction') == 'outbound-dial' and 
@@ -264,11 +280,12 @@ class User(models.Model):
         
         # Only create SIP dial if SIP is enabled
         if self.sip_enabled:
-            # For transfer redirects, prevent fall-through to voicemail by using action URL
+            # For transfer redirects, use action URL for completion tracking
             action_url = urljoin(api_url, 'connect/dial_complete') if is_transfer_redirect else None
             dial_sip_kwargs = {'timeout': self.sip_ring_timeout, 'callerId': callerId}
             if action_url:
                 dial_sip_kwargs['action'] = action_url
+                dial_sip_kwargs['method'] = 'POST'
             if self.record_calls:
                 dial_sip_kwargs.update({
                     'recordingStatusCallback': record_status_url,
@@ -282,11 +299,12 @@ class User(models.Model):
 
         # Only create client dial if client is enabled
         if self.client_enabled:
-            # For transfer redirects, prevent fall-through to voicemail by using action URL
+            # For transfer redirects, use action URL for completion tracking
             action_url = urljoin(api_url, 'connect/dial_complete') if is_transfer_redirect else None
             dial_client_kwargs = {'timeout': self.client_ring_timeout, 'callerId': callerId}
             if action_url:
                 dial_client_kwargs['action'] = action_url
+                dial_client_kwargs['method'] = 'POST'
             if self.record_calls:
                 dial_client_kwargs.update({
                     'record': 'record-from-answer',
@@ -345,6 +363,81 @@ class User(models.Model):
         
         debug(self, pretty_xml(response.to_xml()))
         return response.to_xml()
+    
+    def _detect_transfer_redirect(self, request, params, call):
+        """
+        Detect if this extension render is for a transfer redirect.
+        Transfer redirects are identified by:
+        1. No existing channel for this CallSid (new call from redirect)
+        2. Recent transfer activity in the system 
+        3. Call pattern suggesting a transfer
+        """
+        call_sid = request.get('CallSid')
+        if not call_sid:
+            return False
+            
+        # If we already have a channel for this SID, it's not a redirect
+        if call:
+            logger.info(f'Extension render for existing channel/call - not a redirect')
+            return False
+            
+        # Look for recent calls with transferred_users that don't have this SID
+        # This suggests a new redirect call for a transfer
+        recent_transfers = self.env['connect.call'].search([
+            ('transferred_users', '!=', False),
+            ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=5))  # Within last 5 minutes
+        ])
+        
+        if recent_transfers:
+            logger.info(f'Found {len(recent_transfers)} recent transfers - this may be a transfer redirect')
+            return True
+            
+        logger.info(f'No indicators of transfer redirect found')
+        return False
+    
+    def _find_original_call_for_transfer(self, request, params):
+        """
+        Find the original call that initiated this transfer redirect.
+        Uses multiple strategies to identify the correct call.
+        """
+        call_sid = request.get('CallSid')
+        
+        # Strategy 1: Look for calls with this user in transferred_users that don't have a channel with this SID
+        if self.user:
+            potential_calls = self.env['connect.call'].search([
+                ('transferred_users', 'in', [self.user.id]),
+                ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=5))
+            ])
+            
+            for call in potential_calls:
+                # Check if this call already has a channel with our SID
+                existing_channel = call.channels.filtered(lambda c: c.sid == call_sid)
+                if not existing_channel:
+                    logger.info(f'Found original call {call.id} for transfer redirect (user in transferred_users)')
+                    return call
+        
+        # Strategy 2: Look for recent calls with transferred_users but no completed transfer channels
+        recent_calls = self.env['connect.call'].search([
+            ('transferred_users', '!=', False),
+            ('create_date', '>=', fields.Datetime.now() - timedelta(minutes=5)),
+            ('status', 'not in', ['completed', 'failed', 'busy', 'no-answer'])
+        ])
+        
+        for call in recent_calls:
+            # Check if any transfer recipients have completed channels
+            transfer_completed = False
+            for user in call.transferred_users:
+                user_channels = call.channels.filtered(lambda c: c.called_user and c.called_user.id == user.id)
+                if user_channels.filtered(lambda c: c.status == 'completed'):
+                    transfer_completed = True
+                    break
+            
+            if not transfer_completed:
+                logger.info(f'Found original call {call.id} for transfer redirect (no completed transfers yet)')
+                return call
+        
+        logger.warning(f'Could not find original call for transfer redirect SID {call_sid}')
+        return None
 
     @api.model
     def get_client_token(self):

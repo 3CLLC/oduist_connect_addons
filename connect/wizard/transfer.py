@@ -429,23 +429,19 @@ class CallForwardHandler(models.TransientModel):
                 else:
                     logger.info('No connect.user found for current Odoo user')
             
-            # Choose transfer method based on call type
-            if is_outgoing_call and transfer_type == 'blind':
-                logger.info('=== USING DIRECT EXTENSION REDIRECT FOR OUTGOING CALL ===')
-                # Use direct extension redirect - simpler and more reliable
-                result = self._execute_outgoing_extension_redirect(client, target_call_sid, user, call)
+            # Use unified direct extension redirect approach for ALL transfers
+            if transfer_type == 'blind':
+                logger.info('=== USING UNIFIED DIRECT EXTENSION REDIRECT FOR ALL TRANSFERS ===')
+                # Use direct extension redirect - simpler and more reliable for both incoming and outgoing
+                result = self._execute_extension_redirect(client, target_call_sid, user, call, is_outgoing_call)
                 logger.info(f'Extension redirect result: {result}')
                 return result
             else:
-                logger.info('=== USING TWIML TRANSFER METHOD ===')
+                logger.info('=== USING TWIML TRANSFER METHOD FOR ATTENDED TRANSFER ===')
                 
-                # Create different TwiML based on transfer type
-                if transfer_type == 'blind':
-                    twiml_str = self._create_blind_transfer_twiml(user, call if is_outgoing_call else None)
-                    logger.info('Created BLIND transfer TwiML (immediate transfer)')
-                else:
-                    twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
-                    logger.info('Created ATTENDED transfer TwiML (conference-based)')
+                # Only use TwiML for attended transfers (which are rare)
+                twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
+                logger.info('Created ATTENDED transfer TwiML (conference-based)')
                 
                 logger.info(f'=== GENERATED TWIML ===')
                 logger.info(f'TwiML: {twiml_str}')
@@ -461,10 +457,7 @@ class CallForwardHandler(models.TransientModel):
                 logger.info(f'Update result: {result}')
                 
                 # For attended transfer, we need to handle the consultation phase
-                if transfer_type == 'attended':
-                    # The original recipient (you) should stay connected until you hang up
-                    # The child call should continue until you decide to complete the transfer
-                    logger.info('=== ATTENDED TRANSFER: Keeping original recipient connected ===')
+                logger.info('=== ATTENDED TRANSFER: Keeping original recipient connected ===')
                     
                 logger.info(f'=== TRANSFER COMPLETE ===')
                 return True
@@ -535,80 +528,76 @@ class CallForwardHandler(models.TransientModel):
         
         return twiml_output
 
-    def _execute_outgoing_extension_redirect(self, client, call_sid, user, call):
+    def _execute_extension_redirect(self, client, call_sid, user, call, is_outgoing_call):
         """
         Execute outgoing call transfer by redirecting external caller directly to target's extension.
         This is simpler and provides better UX than conference transfers.
         """
         try:
-            logger.info(f'=== EXECUTING OUTGOING EXTENSION REDIRECT ===')
+            logger.info(f'=== EXECUTING UNIFIED EXTENSION REDIRECT ===')
             logger.info(f'Call SID: {call_sid}')
-            logger.info(f'Transfer to user: {user.name} (Extension: {user.exten.number})')
+            logger.info(f'Transfer to: {user.name} (Extension: {user.exten.number})')
+            logger.info(f'Is outgoing call: {is_outgoing_call}')
             
-            # Step 1: Get the external call leg from transfer context
-            logger.info(f'=== GETTING EXTERNAL CALL LEG FROM CONTEXT ===')
-            logger.info(f'Call ID: {call.id}, Direction: {call.direction}')
-            
-            external_call_sid = call.get_external_call_leg()
-            
-            if external_call_sid:
-                logger.info(f'✓ Retrieved external call leg from context: {external_call_sid}')
-            else:
-                logger.error('❌ No external call leg stored in transfer context')
-                logger.error('This indicates the outbound-dial channel was not properly stored during call setup')
-                return False
-            
-            # Step 2: Play transfer message to external caller, then redirect
-            logger.info(f'=== REDIRECTING EXTERNAL CALLER TO EXTENSION ===')
-            
-            # First, play a transfer message to the external caller
-            transfer_response = VoiceResponse()
-            transfer_response.say('Transferring your call now. Please hold.')
-            transfer_response.pause(length=1)
-            
-            # Create the redirect URL for after the message
+            # Create the redirect URL
             api_url = self.env['connect.settings'].sudo().get_param('api_url')
             extension_url = urljoin(api_url, f'connect/{user.exten.number}')
             
-            # Add redirect to the extension after the message
-            transfer_response.redirect(extension_url, method='GET')
-            
-            logger.info(f'Redirecting external call {external_call_sid} to extension {user.exten.number}')
-            logger.info(f'Extension URL: {extension_url}')
-            logger.info(f'Transfer message TwiML: {str(transfer_response)}')
-            
-            # Update the external call with the transfer message + redirect
-            redirect_result = client.calls(external_call_sid).update(
-                twiml=str(transfer_response)
-            )
-            
-            logger.info(f'External call redirected: {redirect_result.status}')
-            
-            # Step 3: Check if original caller is still active before hanging up
-            logger.info(f'=== DISCONNECTING ORIGINAL CALLER ===')
-            logger.info(f'Checking status of original caller: {call_sid}')
-            
-            # Check if the call is still active
-            try:
-                original_call_status = client.calls(call_sid).fetch()
-                logger.info(f'Original caller status: {original_call_status.status}')
+            if is_outgoing_call:
+                # OUTGOING CALL: Redirect the external call leg, hang up the original caller
+                logger.info('=== OUTGOING CALL REDIRECT ===')
                 
-                if original_call_status.status in ['in-progress', 'ringing']:
-                    hangup_response = VoiceResponse()
-                    hangup_response.hangup()
-                    
-                    # Update the original caller's call to hang up
-                    original_result = client.calls(call_sid).update(twiml=str(hangup_response))
-                    logger.info(f'Original caller disconnected: {original_result.status}')
-                else:
-                    logger.info(f'Original caller already ended ({original_call_status.status}), no need to hang up')
-                    
-            except Exception as e:
-                logger.warning(f'Could not check/update original caller status: {e}')
+                external_call_sid = call.get_external_call_leg()
+                if not external_call_sid:
+                    logger.error('Could not find external call leg for outgoing transfer')
+                    return False
+                
+                logger.info(f'Redirecting external call {external_call_sid} to extension {user.exten.number}')
+                
+                # Play transfer message to external caller, then redirect
+                transfer_response = VoiceResponse()
+                transfer_response.say('Transferring your call now. Please hold.')
+                transfer_response.pause(length=1)
+                transfer_response.redirect(extension_url, method='GET')
+                
+                # Update the external call with the transfer message + redirect
+                redirect_result = client.calls(external_call_sid).update(
+                    twiml=str(transfer_response)
+                )
+                logger.info(f'External call redirect result: {redirect_result.status}')
+                
+                # Check if original caller is still active before hanging up
+                try:
+                    original_call_status = client.calls(call_sid).fetch()
+                    if original_call_status.status in ['in-progress', 'ringing']:
+                        hangup_response = VoiceResponse()
+                        hangup_response.hangup()
+                        original_result = client.calls(call_sid).update(twiml=str(hangup_response))
+                        logger.info(f'Original caller disconnected: {original_result.status}')
+                    else:
+                        logger.info(f'Original caller already ended ({original_call_status.status}), no need to hang up')
+                except Exception as e:
+                    logger.warning(f'Could not check/update original caller status: {e}')
+            else:
+                # INCOMING CALL: Redirect the current call directly to extension
+                logger.info('=== INCOMING CALL REDIRECT ===')
+                logger.info(f'Redirecting current call {call_sid} to extension {user.exten.number}')
+                
+                # Play transfer message, then redirect to extension
+                transfer_response = VoiceResponse()
+                transfer_response.say('Transferring your call now. Please hold.')
+                transfer_response.pause(length=1)
+                transfer_response.redirect(extension_url, method='GET')
+                
+                # Update the current call with redirect
+                redirect_result = client.calls(call_sid).update(
+                    twiml=str(transfer_response)
+                )
+                logger.info(f'Call redirect result: {redirect_result.status}')
             
             logger.info(f'=== EXTENSION REDIRECT COMPLETE ===')
-            logger.info(f'External party will ring {user.name} directly at extension {user.exten.number}')
-            logger.info(f'If no answer, external party will reach voicemail automatically')
+            logger.info(f'Caller will ring {user.name} directly at extension {user.exten.number}')
+            logger.info(f'If no answer, caller will reach voicemail automatically')
             logger.info(f'Missed call notifications will be sent to {user.name}')
             
             return True
