@@ -109,12 +109,31 @@ class ConnectPlusController(http.Controller):
             logger.info(f'Transfer not answered (status: {dial_status}) - providing personalized voicemail')
             
             # Try to find the target user for personalized voicemail
+            # Reuse the same logic from completion processing
             try:
                 original_call = self._find_original_call_for_redirect_completion(original_call_sid, dial_call_sid)
                 if original_call:
-                    transfer_recipient = original_call.get_transfer_target(original_call_sid)
-                    if not transfer_recipient:
+                    # Use the same comprehensive fallback logic as completion processing
+                    transfer_recipient = None
+                    
+                    # First try the original call SID (redirect call)
+                    if original_call_sid:
+                        transfer_recipient = original_call.get_transfer_target(original_call_sid)
+                    
+                    # Fallback: try with dial_call_sid (transfer recipient call)  
+                    if not transfer_recipient and dial_call_sid:
                         transfer_recipient = original_call.get_transfer_target(dial_call_sid)
+                        
+                    # Fallback: check ParentCallSid from webhook params  
+                    if not transfer_recipient:
+                        parent_call_sid = kw.get('ParentCallSid')
+                        if parent_call_sid:
+                            transfer_recipient = original_call.get_transfer_target(parent_call_sid)
+                    
+                    # FINAL FALLBACK: Use most recent transferred user
+                    if not transfer_recipient and original_call.transferred_users:
+                        transfer_recipient = original_call.transferred_users[-1]  # Most recent transfer
+                        logger.info(f'Using fallback for voicemail: most recent transferred user {transfer_recipient.login}')
                     
                     if transfer_recipient:
                         # Get the PBX user for voicemail prompt

@@ -972,36 +972,43 @@ class Call(models.Model):
                 message.append('answered by: {}, '.format(channel.call.answered_user.name))
             if channel.call.called_users:
                 message.append('dialed users: {}, '.format(', '.join(k.name for k in channel.call.called_users)))
-                # Missed call notification, filter users who have it enabled.
-                # Handle transfer scenarios: only notify transfer recipients who didn't answer
-                # For non-transfer scenarios: notify all called users if call not completed
-                if channel.call.transferred_users:
-                    # Transfer scenario: only notify transfer recipients who didn't complete the call
-                    for user in channel.call.transferred_users:
-                        logger.info(f"Call {channel.call.id}: Checking transfer recipient {user.login} for missed call notification")
-                        logger.info(f"  - completed_by_user: {channel.call.completed_by_user.login if channel.call.completed_by_user else 'None'}")
-                        logger.info(f"  - user == completed_by_user: {user == channel.call.completed_by_user}")
+            
+            # Missed call notification logic
+            # Handle transfer scenarios separately from regular call scenarios
+            if channel.call.transferred_users:
+                # TRANSFER SCENARIO: Notify transfer recipients who didn't complete the call
+                # This applies to both incoming and outgoing call transfers
+                logger.info(f"Call {channel.call.id}: Processing transfer notifications for {len(channel.call.transferred_users)} transfer recipients")
+                for user in channel.call.transferred_users:
+                    logger.info(f"Call {channel.call.id}: Checking transfer recipient {user.login} for missed call notification")
+                    logger.info(f"  - completed_by_user: {channel.call.completed_by_user.login if channel.call.completed_by_user else 'None'}")
+                    logger.info(f"  - user == completed_by_user: {user == channel.call.completed_by_user}")
+                    
+                    # Check if user has connect_user and missed_calls_notify enabled
+                    connect_user = user.connect_user
+                    if connect_user:
+                        logger.info(f"  - connect_user found: {connect_user[0].name if connect_user else 'None'}")
+                        logger.info(f"  - missed_calls_notify: {connect_user[0].missed_calls_notify if connect_user else False}")
                         
-                        # Check if user has connect_user and missed_calls_notify enabled
-                        connect_user = user.connect_user
-                        if connect_user:
-                            logger.info(f"  - connect_user found: {connect_user[0].name if connect_user else 'None'}")
-                            logger.info(f"  - missed_calls_notify: {connect_user[0].missed_calls_notify if connect_user else False}")
-                            
-                            if (connect_user[0].missed_calls_notify and 
-                                user != channel.call.completed_by_user):
-                                notify_users.append(user)
-                                transfer_missed_users.append(user)  # Track as missed transfer
-                                logger.info(f"Call {channel.call.id}: Adding transfer recipient {user.login} to missed call notifications (didn't complete transfer)")
-                            else:
-                                logger.info(f"Call {channel.call.id}: NOT notifying {user.login} - {'completed call' if user == channel.call.completed_by_user else 'notifications disabled'}")
-                        else:
-                            logger.warning(f"Call {channel.call.id}: No connect_user found for {user.login} - cannot send missed call notification")
-                else:
-                    # Non-transfer scenario: notify all called users (original behavior)
-                    for user in channel.call.called_users:
-                        if user.connect_user[0].missed_calls_notify:
+                        if (connect_user[0].missed_calls_notify and 
+                            user != channel.call.completed_by_user):
                             notify_users.append(user)
+                            transfer_missed_users.append(user)  # Track as missed transfer
+                            logger.info(f"Call {channel.call.id}: Adding transfer recipient {user.login} to missed call notifications (didn't complete transfer)")
+                        else:
+                            logger.info(f"Call {channel.call.id}: NOT notifying {user.login} - {'completed call' if user == channel.call.completed_by_user else 'notifications disabled'}")
+                    else:
+                        logger.warning(f"Call {channel.call.id}: No connect_user found for {user.login} - cannot send missed call notification")
+            elif channel.call.called_users:
+                # NON-TRANSFER SCENARIO: Notify all called users (original behavior)
+                # This only applies when there are no transfers
+                logger.info(f"Call {channel.call.id}: Processing regular missed call notifications for {len(channel.call.called_users)} called users")
+                for user in channel.call.called_users:
+                    if user.connect_user[0].missed_calls_notify:
+                        notify_users.append(user)
+                        logger.info(f"Call {channel.call.id}: Adding called user {user.login} to missed call notifications")
+            else:
+                logger.info(f"Call {channel.call.id}: No called_users or transferred_users - no missed call notifications to send")
             # Register call at partner.
             if channel.call.partner:
                 message.insert(3, 'partner: {}, '.format(channel.call.partner.name))
