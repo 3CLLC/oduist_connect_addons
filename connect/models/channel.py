@@ -128,6 +128,10 @@ class Channel(models.Model):
             channel.write(data)
             debug(self, 'Channel %s updated.' % channel.id)
             
+            # Check for external call termination after transfer recipient hangs up
+            if params['CallStatus'] in CALL_END_STATUSES and channel.call:
+                self._handle_external_call_termination_on_hangup(channel, params)
+            
             # Note: Outgoing transfer failures now handled by direct extension redirect
             # No longer need complex failure detection logic
         # Channel not found by sid, create it.
@@ -350,4 +354,57 @@ class Channel(models.Model):
             
         except Exception as e:
             logger.error(f'Error handling failed outgoing transfer: {e}')
+
+    def _handle_external_call_termination_on_hangup(self, channel, params):
+        """
+        Handle external call termination when transfer recipients hang up completed calls.
+        This prevents external callers from going to voicemail when internal users end calls.
+        """
+        try:
+            call = channel.call
+            call_sid = params.get('CallSid')
+            call_status = params.get('CallStatus')
+            
+            # Only process if call has transfer context with termination info
+            if not call.transfer_context or '_external_termination' not in call.transfer_context:
+                return
+                
+            termination_info = call.transfer_context['_external_termination']
+            transfer_recipient_sid = termination_info.get('transfer_recipient_sid')
+            external_call_sid = termination_info.get('external_call_sid')
+            
+            # Check if this is the transfer recipient hanging up
+            if call_sid == transfer_recipient_sid:
+                logger.info(f'=== TRANSFER RECIPIENT HANGUP DETECTED ===')
+                logger.info(f'Transfer recipient {call_sid} hung up - terminating external call {external_call_sid}')
+                
+                # Terminate the external call
+                client = self.env['connect.settings'].get_client()
+                try:
+                    # Check if external call is still active
+                    external_call = client.calls(external_call_sid).fetch()
+                    if external_call.status in ['in-progress', 'ringing']:
+                        # Terminate the external call
+                        hangup_result = client.calls(external_call_sid).update(status='completed')
+                        logger.info(f'Successfully terminated external call {external_call_sid}: {hangup_result.status}')
+                    else:
+                        logger.info(f'External call {external_call_sid} already ended ({external_call.status})')
+                        
+                except Exception as e:
+                    logger.error(f'Failed to terminate external call {external_call_sid}: {e}')
+                    
+                # Clean up termination context
+                try:
+                    current_context = call.transfer_context or {}
+                    if '_external_termination' in current_context:
+                        del current_context['_external_termination']
+                        call.transfer_context = current_context
+                        logger.info(f'Cleaned up external termination context for call {call.id}')
+                except Exception as e:
+                    logger.error(f'Failed to clean up termination context: {e}')
+                    
+                logger.info(f'=== EXTERNAL CALL TERMINATION COMPLETE ===')
+                
+        except Exception as e:
+            logger.error(f'Error handling external call termination: {e}', exc_info=True)
 

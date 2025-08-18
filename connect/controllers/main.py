@@ -105,9 +105,42 @@ class ConnectPlusController(http.Controller):
             logger.info('Transfer answered - hanging up redirect call')
             response.hangup()
         else:
-            # Call was not answered - allow voicemail
-            logger.info(f'Transfer not answered (status: {dial_status}) - allowing voicemail')
-            response.say('Please leave a message after the tone.')
+            # Call was not answered - provide personalized voicemail
+            logger.info(f'Transfer not answered (status: {dial_status}) - providing personalized voicemail')
+            
+            # Try to find the target user for personalized voicemail
+            try:
+                original_call = self._find_original_call_for_redirect_completion(original_call_sid, dial_call_sid)
+                if original_call:
+                    transfer_recipient = original_call.get_transfer_target(original_call_sid)
+                    if not transfer_recipient:
+                        transfer_recipient = original_call.get_transfer_target(dial_call_sid)
+                    
+                    if transfer_recipient:
+                        # Get the PBX user for voicemail prompt
+                        pbx_user = http.request.env['connect.user'].sudo().search([
+                            ('user', '=', transfer_recipient.id)
+                        ], limit=1)
+                        
+                        if pbx_user and pbx_user.voicemail_enabled and pbx_user.voicemail_prompt:
+                            # Use personalized voicemail prompt
+                            logger.info(f'Using personalized voicemail for {transfer_recipient.login}')
+                            personalized_prompt = pbx_user.render_voicemail_prompt()
+                            response.say(personalized_prompt)
+                        else:
+                            # Fallback to generic message
+                            logger.info(f'Using generic voicemail (user has no personalized prompt)')
+                            response.say('Please leave a message after the tone.')
+                    else:
+                        logger.warning(f'Could not find transfer recipient for personalized voicemail')
+                        response.say('Please leave a message after the tone.')
+                else:
+                    logger.warning(f'Could not find original call for personalized voicemail')
+                    response.say('Please leave a message after the tone.')
+            except Exception as e:
+                logger.error(f'Error setting up personalized voicemail: {e}')
+                response.say('Please leave a message after the tone.')
+                
             response.record(maxLength=120, finishOnKey='#', playBeep=True)
         
         return response.to_xml()
@@ -152,6 +185,9 @@ class ConnectPlusController(http.Controller):
             
             # Create/update a channel record for the transfer recipient to ensure proper field population
             self._create_or_update_transfer_channel(original_call, dial_call_sid, transfer_recipient, 'completed', webhook_params)
+            
+            # CRITICAL: For completed transfers, terminate external call legs to prevent VM fall-through
+            self._terminate_external_call_after_transfer_completion(original_call, dial_call_sid, transfer_recipient)
             
         else:
             # Transfer failed - recipient didn't answer
@@ -252,6 +288,73 @@ class ConnectPlusController(http.Controller):
         except Exception as e:
             logger.error(f'Failed to create/update transfer channel: {e}', exc_info=True)
             return None
+    
+    def _terminate_external_call_after_transfer_completion(self, call, transfer_recipient_sid, transfer_recipient):
+        """
+        Terminate external call legs after successful transfer completion to prevent voicemail fall-through.
+        This addresses the issue where external callers go to voicemail when internal users hang up completed calls.
+        """
+        try:
+            logger.info(f'=== TERMINATING EXTERNAL CALLS AFTER TRANSFER COMPLETION ===')
+            logger.info(f'Call: {call.id}, Transfer recipient: {transfer_recipient.login}')
+            
+            # For outgoing calls, find and terminate the external call leg
+            if call.direction == 'outgoing':
+                external_call_sid = call.get_external_call_leg()
+                if external_call_sid:
+                    logger.info(f'Found external call leg: {external_call_sid}')
+                    
+                    # Get Twilio client
+                    client = http.request.env['connect.settings'].sudo().get_client()
+                    
+                    # Check if external call is still active
+                    try:
+                        external_call = client.calls(external_call_sid).fetch()
+                        if external_call.status in ['in-progress', 'ringing']:
+                            # External call is still active - set up termination logic
+                            # Instead of immediate termination, we'll modify the call to hang up when transfer recipient hangs up
+                            logger.info(f'External call {external_call_sid} is active - will terminate when transfer recipient hangs up')
+                            
+                            # Store termination context for later processing
+                            self._store_external_call_termination_context(call, external_call_sid, transfer_recipient_sid)
+                        else:
+                            logger.info(f'External call {external_call_sid} already ended ({external_call.status})')
+                    except Exception as e:
+                        logger.warning(f'Could not check external call status: {e}')
+                else:
+                    logger.warning(f'No external call leg found for outgoing call {call.id}')
+                    
+            # For incoming calls, the external caller is the original caller
+            else:
+                # Find the original external caller channel
+                external_channels = call.channels.filtered(lambda c: not c.parent_channel and not c.caller_pbx_user)
+                if external_channels:
+                    external_channel = external_channels[0]
+                    logger.info(f'Found external caller channel: {external_channel.sid}')
+                    
+                    # Store termination context for later processing  
+                    self._store_external_call_termination_context(call, external_channel.sid, transfer_recipient_sid)
+                else:
+                    logger.info(f'No external caller channel found for incoming call {call.id}')
+            
+            logger.info(f'=== EXTERNAL CALL TERMINATION SETUP COMPLETE ===')
+            
+        except Exception as e:
+            logger.error(f'Failed to set up external call termination: {e}', exc_info=True)
+    
+    def _store_external_call_termination_context(self, call, external_call_sid, transfer_recipient_sid):
+        """Store context for terminating external calls when transfer recipients hang up"""
+        try:
+            current_context = call.transfer_context or {}
+            current_context['_external_termination'] = {
+                'external_call_sid': external_call_sid,
+                'transfer_recipient_sid': transfer_recipient_sid,
+                'setup_time': http.request.env.cr.now()
+            }
+            call.transfer_context = current_context
+            logger.info(f'Stored external termination context: {external_call_sid} -> {transfer_recipient_sid}')
+        except Exception as e:
+            logger.error(f'Failed to store external termination context: {e}')
 
     @http.route('/connect/health/<string:uid>/', methods=['GET', 'POST'], type='http', auth='public', csrf=False)
     def health_check(self, uid):
