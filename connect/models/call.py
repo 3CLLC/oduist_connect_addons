@@ -1009,7 +1009,7 @@ class Call(models.Model):
             # Fallback if timezone conversion fails
             formatted_date = call_datetime.strftime('%B %d, %Y at %I:%M %p EST')
         
-        return f"Missed call from {caller_display}\n{formatted_date}"
+        return f"Missed call from {caller_display}<br>{formatted_date}"
     
     def _format_missed_transfer_message(self, channel):
         """
@@ -1056,9 +1056,9 @@ class Call(models.Model):
         # Add transfer context
         transfer_info = ""
         if channel.call.answered_user:
-            transfer_info = f"\nOriginally answered by: {channel.call.answered_user.name}"
+            transfer_info = f"<br>Originally answered by: {channel.call.answered_user.name}"
         
-        return f"Missed transfer from {caller_display}{transfer_info}\n{formatted_date}"
+        return f"Missed transfer from {caller_display}{transfer_info}<br>{formatted_date}"
 
     def register_call(self, channel, params):
         try:
@@ -1142,7 +1142,7 @@ class Call(models.Model):
                     channel.call.register_call_post_message(
                         channel.call,
                         subtype_xmlid='mail.mt_comment',
-                        subject="Missed Call",
+                        subject=channel.call.name,
                         body=clean_message,
                         partner_ids=[k.partner_id.id for k in regular_missed_users]
                     )
@@ -1154,7 +1154,7 @@ class Call(models.Model):
                     channel.call.register_call_post_message(
                         channel.call,
                         subtype_xmlid='mail.mt_comment',
-                        subject="Missed Transfer",
+                        subject=f"Missed Transfer - {channel.call.name}",
                         body=clean_transfer_message,
                         partner_ids=[k.partner_id.id for k in transfer_missed_users]
                     )
