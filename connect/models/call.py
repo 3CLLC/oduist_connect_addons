@@ -56,6 +56,8 @@ class Call(models.Model):
     # Transfer tracking fields
     transferred_users = fields.Many2many('res.users', 'connect_call_transfer_rel', 'call_id', 'user_id', string='Transferred Users', readonly=True)
     completed_by_user = fields.Many2one('res.users', ondelete='set null', string='Completed By', readonly=True)
+    # Transfer completion tracking - prevents completion logic from overriding webhook-set values
+    transfer_completion_handled = fields.Boolean(default=False, readonly=True, help='True if transfer completion was handled by webhook')
     # Temporary transfer context for webhook processing (cleared after use)
     transfer_context = fields.Json(string='Transfer Context', readonly=True, help='Temporary storage for transfer targets during webhook processing')
     # Call pattern tracking
@@ -496,20 +498,24 @@ class Call(models.Model):
         
         # COMPLETED BY USER: Person who completed the call
         if self.transferred_users:
-            # Check if transfer recipient completed the call
-            all_completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user)
-            transfer_completed_channels = all_completed_channels.filtered(
-                lambda c: c.called_pbx_user.user in self.transferred_users
-            )
-            if transfer_completed_channels:
-                # Transfer recipient completed - use most recent transfer completion
-                final_channel = transfer_completed_channels.sorted('id')[-1]
-                self.completed_by_user = final_channel.called_pbx_user.user
-                logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login}")
+            # Check if transfer completion was already handled by webhook
+            if self.transfer_completion_handled:
+                logger.info(f"Call {self.id}: Transfer completion already handled by webhook - completed_by_user: {self.completed_by_user.login if self.completed_by_user else 'None'}")
             else:
-                # Transfer failed, nobody completed the call
-                self.completed_by_user = False
-                logger.info(f"Call {self.id}: completed_by_user left empty (transfer failed - nobody completed)")
+                # Check if transfer recipient completed the call via channel records
+                all_completed_channels = self.channels.filtered(lambda c: c.status == 'completed' and c.called_pbx_user and c.called_pbx_user.user)
+                transfer_completed_channels = all_completed_channels.filtered(
+                    lambda c: c.called_pbx_user.user in self.transferred_users
+                )
+                if transfer_completed_channels:
+                    # Transfer recipient completed - use most recent transfer completion
+                    final_channel = transfer_completed_channels.sorted('id')[-1]
+                    self.completed_by_user = final_channel.called_pbx_user.user
+                    logger.info(f"Call {self.id}: completed_by_user set to transfer recipient {self.completed_by_user.login} (via channels)")
+                else:
+                    # Transfer failed, nobody completed the call
+                    self.completed_by_user = False
+                    logger.info(f"Call {self.id}: completed_by_user left empty (transfer failed - nobody completed)")
         else:
             # No transfer - answered user also completed
             self.completed_by_user = self.answered_user
@@ -631,6 +637,7 @@ class Call(models.Model):
         if self.transfer_context:
             logger.info(f"Call {self.id}: Clearing transfer context")
             self.transfer_context = None
+        # Note: We don't clear transfer_completion_handled here as it's permanent state for the call
 
     def write(self, vals):
         return super().write(vals)

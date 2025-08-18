@@ -733,6 +733,7 @@ class CallForwardHandler(models.TransientModel):
                 transfer_recipient = self.env['res.users'].sudo().search([('login', '=', transfer_recipient_login)], limit=1)
                 if transfer_recipient:
                     call.completed_by_user = transfer_recipient
+                    call.transfer_completion_handled = True
                     logger.info(f'Call {call.id}: Transfer completed - set completed_by_user to {transfer_recipient.login}')
                 else:
                     logger.warning(f'Could not find user with login {transfer_recipient_login}')
@@ -740,6 +741,7 @@ class CallForwardHandler(models.TransientModel):
                 # Fallback: use the first transfer recipient
                 if call.transferred_users:
                     call.completed_by_user = call.transferred_users[0]
+                    call.transfer_completion_handled = True
                     logger.info(f'Call {call.id}: Transfer completed - set completed_by_user to {call.transferred_users[0].login} (fallback)')
         
         response = VoiceResponse()
