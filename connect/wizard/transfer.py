@@ -695,10 +695,53 @@ class CallForwardHandler(models.TransientModel):
     def handle_transfer_continuation(self, webhook_params):
         """
         Handle the action callback from transfer dial completion.
-        For successful transfers, let the conference continue.
+        For successful transfers, update completion status.
         For failed transfers, route the external caller to the transfer target's voicemail.
         """
         logger.info(f'=== HANDLING TRANSFER CONTINUATION ===')
+        
+        call_sid = webhook_params.get('CallSid')
+        dial_call_status = webhook_params.get('DialCallStatus')
+        dial_call_sid = webhook_params.get('DialCallSid')
+        
+        # Find the call record
+        call_channel = self.env['connect.channel'].sudo().search([('twilio_call_sid', '=', call_sid)], limit=1)
+        if not call_channel or not call_channel.call:
+            logger.warning(f'Could not find call for transfer continuation: {call_sid}')
+            response = VoiceResponse()
+            response.hangup()
+            return response
+        
+        call = call_channel.call
+        logger.info(f'Found call {call.id} for transfer continuation')
+        
+        # If transfer recipient answered (DialCallStatus: completed), update completion status
+        if dial_call_status == 'completed' and call.transferred_users:
+            # Find the transfer recipient who answered by looking at transfer context
+            transfer_context = call.transfer_context or {}
+            transfer_recipient_login = None
+            
+            # Look for the transfer recipient in the context
+            for context_key, context_value in transfer_context.items():
+                if context_key.startswith('CAd7c8b8a6') or context_key == call_sid:  # Match call SID patterns
+                    if isinstance(context_value, str) and '@' in context_value:  # Email format
+                        transfer_recipient_login = context_value
+                        break
+            
+            if transfer_recipient_login:
+                # Find the user and set as completed_by_user
+                transfer_recipient = self.env['res.users'].sudo().search([('login', '=', transfer_recipient_login)], limit=1)
+                if transfer_recipient:
+                    call.completed_by_user = transfer_recipient
+                    logger.info(f'Call {call.id}: Transfer completed - set completed_by_user to {transfer_recipient.login}')
+                else:
+                    logger.warning(f'Could not find user with login {transfer_recipient_login}')
+            else:
+                # Fallback: use the first transfer recipient
+                if call.transferred_users:
+                    call.completed_by_user = call.transferred_users[0]
+                    logger.info(f'Call {call.id}: Transfer completed - set completed_by_user to {call.transferred_users[0].login} (fallback)')
+        
         response = VoiceResponse()
         response.hangup()
         return response
