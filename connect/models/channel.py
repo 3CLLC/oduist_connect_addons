@@ -7,6 +7,8 @@ from urllib.parse import urljoin
 from odoo import fields, models, api, release
 from .settings import debug
 
+CALL_END_STATUSES = ['completed', 'busy', 'failed', 'no-answer', 'canceled']
+
 logger = logging.getLogger(__name__)
 
 
