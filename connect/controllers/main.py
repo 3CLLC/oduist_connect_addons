@@ -166,13 +166,32 @@ class ConnectPlusController(http.Controller):
         logger.info(f'Found original call {original_call.id} for transfer completion processing')
         
         # Find transfer recipient user from transfer context
-        transfer_recipient = original_call.get_transfer_target(original_call_sid)
-        if not transfer_recipient:
-            # Fallback: try with dial_call_sid
+        # Try multiple SID patterns from the webhook
+        transfer_recipient = None
+        
+        # First try the original call SID (redirect call)
+        if original_call_sid:
+            transfer_recipient = original_call.get_transfer_target(original_call_sid)
+        
+        # Fallback: try with dial_call_sid (transfer recipient call)  
+        if not transfer_recipient and dial_call_sid:
             transfer_recipient = original_call.get_transfer_target(dial_call_sid)
+            
+        # Fallback: check ParentCallSid from webhook params  
+        if not transfer_recipient:
+            parent_call_sid = webhook_params.get('ParentCallSid')
+            if parent_call_sid:
+                transfer_recipient = original_call.get_transfer_target(parent_call_sid)
+                logger.info(f'Trying ParentCallSid {parent_call_sid} for transfer recipient')
+        
+        # FINAL FALLBACK: If still no recipient found, use the most recent transferred user
+        # This handles cases where transfer context lookup fails but we know transfers occurred
+        if not transfer_recipient and original_call.transferred_users:
+            transfer_recipient = original_call.transferred_users[-1]  # Most recent transfer
+            logger.info(f'Using fallback: most recent transferred user {transfer_recipient.login}')
         
         if not transfer_recipient:
-            logger.warning(f'Could not find transfer recipient for completion processing')
+            logger.warning(f'Could not find transfer recipient for completion processing - no transferred_users found')
             return
             
         logger.info(f'Transfer recipient: {transfer_recipient.login}')
@@ -210,9 +229,10 @@ class ConnectPlusController(http.Controller):
         
         for call in recent_calls:
             if call.transfer_context:
-                # Check if either SID is in the transfer context
-                if (original_call_sid in str(call.transfer_context) or 
-                    dial_call_sid in str(call.transfer_context)):
+                # Check if either SID is in the transfer context (handle None values)
+                context_str = str(call.transfer_context)
+                if ((original_call_sid and original_call_sid in context_str) or 
+                    (dial_call_sid and dial_call_sid in context_str)):
                     logger.info(f'Found original call {call.id} via transfer context')
                     return call
         

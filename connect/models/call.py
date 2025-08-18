@@ -978,11 +978,25 @@ class Call(models.Model):
                 if channel.call.transferred_users:
                     # Transfer scenario: only notify transfer recipients who didn't complete the call
                     for user in channel.call.transferred_users:
-                        if (user.connect_user[0].missed_calls_notify and 
-                            user != channel.call.completed_by_user):
-                            notify_users.append(user)
-                            transfer_missed_users.append(user)  # Track as missed transfer
-                            logger.info(f"Call {channel.call.id}: Adding transfer recipient {user.login} to missed call notifications (didn't complete transfer)")
+                        logger.info(f"Call {channel.call.id}: Checking transfer recipient {user.login} for missed call notification")
+                        logger.info(f"  - completed_by_user: {channel.call.completed_by_user.login if channel.call.completed_by_user else 'None'}")
+                        logger.info(f"  - user == completed_by_user: {user == channel.call.completed_by_user}")
+                        
+                        # Check if user has connect_user and missed_calls_notify enabled
+                        connect_user = user.connect_user
+                        if connect_user:
+                            logger.info(f"  - connect_user found: {connect_user[0].name if connect_user else 'None'}")
+                            logger.info(f"  - missed_calls_notify: {connect_user[0].missed_calls_notify if connect_user else False}")
+                            
+                            if (connect_user[0].missed_calls_notify and 
+                                user != channel.call.completed_by_user):
+                                notify_users.append(user)
+                                transfer_missed_users.append(user)  # Track as missed transfer
+                                logger.info(f"Call {channel.call.id}: Adding transfer recipient {user.login} to missed call notifications (didn't complete transfer)")
+                            else:
+                                logger.info(f"Call {channel.call.id}: NOT notifying {user.login} - {'completed call' if user == channel.call.completed_by_user else 'notifications disabled'}")
+                        else:
+                            logger.warning(f"Call {channel.call.id}: No connect_user found for {user.login} - cannot send missed call notification")
                 else:
                     # Non-transfer scenario: notify all called users (original behavior)
                     for user in channel.call.called_users:
