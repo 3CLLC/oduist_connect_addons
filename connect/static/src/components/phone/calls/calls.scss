@@ -10,10 +10,10 @@ $color-missed-call-bg: #f8d7da;
     width: 100%;
 
     tr {
+      align-items: center;
       height: 62px;
       border-bottom: 1px solid $o-brand-odoo;
-      
-      // Increase height for transfer calls that have an extra line
+
       &.transfer-call {
         height: 78px;
       }
@@ -52,7 +52,7 @@ $color-missed-call-bg: #f8d7da;
 
       // Increase height for transfer calls that have an extra line
       &.transfer-call {
-        height: 78px;
+        height: 77px;
       }
 
       .o_contact_phone {
@@ -170,7 +170,7 @@ $color-missed-call-bg: #f8d7da;
 
 // Transfer information styling
 .transfer-info {
-  font-size: 11px;
+  font-size: 11px !important;
   color: #6c757d;
   font-style: italic;
 

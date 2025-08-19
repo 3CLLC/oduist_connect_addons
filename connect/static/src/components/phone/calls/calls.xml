@@ -127,7 +127,7 @@
                             </t>
                         </t>
 
-                        <tr class="d-flex" t-attf-class="{{call.is_transfer_recipient ? 'transfer-call' : ''}}">
+                        <tr class="d-flex" t-attf-class="{{call.is_missed ? 'missed-call' : ''}} {{call.is_transfer_recipient ? 'transfer-call' : ''}}">
                             <td class="o_partner_icon" t-attf-class="{{call.is_missed ? 'missed-call' : ''}}">
                                 <div class="partner-icon" t-on-click="() => this._open_detail(call)"
                                      title="Click to view detail">
