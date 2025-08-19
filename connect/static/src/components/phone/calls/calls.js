@@ -136,6 +136,31 @@ export class Calls extends Component {
                 // Missed transfer: transfer occurred but nobody completed it
                 (item.transferred_users && item.transferred_users.length > 0 && !item.completed_by_user)
             )
+            
+            // Determine if this user received a transfer
+            item.is_transfer_recipient = (
+                item.transferred_users && 
+                item.transferred_users.length > 0 && 
+                item.transferred_users.some(user_id => user_id === this.user)
+            )
+            
+            // For transfer recipients, we want to show the original caller info
+            // instead of the transferring user's info
+            if (item.is_transfer_recipient) {
+                // The original caller info should be in item.caller/item.caller_user
+                // The transferring user info would be in answered_user
+                item.display_caller_info = {
+                    is_transfer: true,
+                    original_caller: item.caller,
+                    original_caller_user: item.caller_user,
+                    original_partner: item.partner,
+                    transferring_user: item.answered_user
+                }
+            } else {
+                item.display_caller_info = {
+                    is_transfer: false
+                }
+            }
         }
         this.state.calls = records
 

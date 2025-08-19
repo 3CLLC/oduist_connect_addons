@@ -65,30 +65,53 @@
             <t t-if="state.calls">
                 <table class="o_history_table">
                     <t t-foreach="state.calls" t-as="call" t-key="call.id">
-                        <t t-if="call.called_users[0] === user">
+                        <!-- Transfer recipient logic: show original caller -->
+                        <t t-if="call.is_transfer_recipient">
+                            <t t-set="caller_id" t-value="call.display_caller_info.original_partner or call.display_caller_info.original_caller_user or call.display_caller_info.original_caller"/>
+                            <t t-set="caller" t-value="call.display_caller_info.original_caller"/>
+                            <t t-set="transfer_info" t-value="call.display_caller_info.transferring_user"/>
+                        </t>
+                        <!-- Regular call logic -->
+                        <t t-elif="call.called_users[0] === user">
                             <t t-set="caller_id" t-value="call.partner or call.caller_user or call.caller"/>
                             <t t-set="caller" t-value="call.caller"/>
+                            <t t-set="transfer_info" t-value="false"/>
                         </t>
                         <t t-else="">
                             <t t-set="called_users" t-value="call.called_users.length > 0 ? call.called_users : false"/>
                             <t t-set="caller_id" t-value="call.partner or called_users or call.called"/>
                             <t t-set="caller" t-value="call.called"/>
+                            <t t-set="transfer_info" t-value="false"/>
                         </t>
                         <t t-if="Array.isArray(caller_id)">
                             <t t-set="caller_id" t-value="caller_id[1]"/>
                         </t>
-                        <t t-if="call.partner">
+                        <!-- Avatar logic for transfers and regular calls -->
+                        <t t-if="call.is_transfer_recipient and call.display_caller_info.original_partner">
+                            <!-- Transfer: Show original caller's partner avatar -->
                             <t t-set="full_caller_id" t-value="caller_id"/>
                             <t t-set="caller_list" t-value="caller_id.split(',')"/>
                             <t t-set="caller_id" t-value="caller_list[caller_list.length -1].trim()"/>
-                            <t t-set="avatar"
-                               t-value="'/web/image?model=res.partner&amp;field=avatar_128&amp;id=' + call.partner[0]"/>
+                            <t t-set="avatar" t-value="'/web/image?model=res.partner&amp;field=avatar_128&amp;id=' + call.display_caller_info.original_partner[0]"/>
+                        </t>
+                        <t t-elif="call.partner">
+                            <!-- Regular call: Show partner avatar -->
+                            <t t-set="full_caller_id" t-value="caller_id"/>
+                            <t t-set="caller_list" t-value="caller_id.split(',')"/>
+                            <t t-set="caller_id" t-value="caller_list[caller_list.length -1].trim()"/>
+                            <t t-set="avatar" t-value="'/web/image?model=res.partner&amp;field=avatar_128&amp;id=' + call.partner[0]"/>
                         </t>
                         <t t-else="">
                             <t t-set="avatar" t-value="'/connect/static/src/images/default_contact.jpg'"/>
-                            <t t-if="call.called_users[0] === user">
+                            <!-- Transfer: Show original caller user avatar -->
+                            <t t-if="call.is_transfer_recipient and call.display_caller_info.original_caller_user">
+                                <t t-set="avatar" t-value="'/web/image?model=res.users&amp;field=avatar_128&amp;id=' + call.display_caller_info.original_caller_user[0]"/>
+                            </t>
+                            <!-- Regular incoming call: Show caller user avatar -->
+                            <t t-elif="call.called_users[0] === user">
                                 <t t-if="call.caller_user" t-set="avatar" t-value="'/web/image?model=res.users&amp;field=avatar_128&amp;id=' + call.caller_user[0]"/>
                             </t>
+                            <!-- Regular outgoing call: Show called user avatar -->
                             <t t-else="">
                                 <t t-if="call.called_users.length > 0" t-set="avatar" t-value="'/web/image?model=res.users&amp;field=avatar_128&amp;id=' + call.called_users[0]"/>
                             </t>
@@ -140,6 +163,13 @@
                                     <div class="card-date" t-attf-class="{{call.is_missed ? 'missed-call-text' : ''}}">
                                         <span class="icon-call"/>
                                         <t t-out="caller"/>
+                                        <!-- Show transfer information -->
+                                        <t t-if="call.is_transfer_recipient and transfer_info">
+                                            <div class="transfer-info">
+                                                <i class="fa fa-share me-1" title="Transferred"/>
+                                                <span class="transfer-text">via <t t-out="transfer_info[1] if Array.isArray(transfer_info) else transfer_info"/></span>
+                                            </div>
+                                        </t>
                                     </div>
                                 </div>
                                 <div class="o_favorite">
