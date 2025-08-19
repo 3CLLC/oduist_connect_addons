@@ -167,7 +167,7 @@
                                         <t t-if="call.is_transfer_recipient and transfer_info">
                                             <div class="transfer-info">
                                                 <i class="fa fa-share me-1" title="Transferred"/>
-                                                <span class="transfer-text">via <t t-out="transfer_info[1] if Array.isArray(transfer_info) else transfer_info"/></span>
+                                                <span class="transfer-text">via <t t-if="Array.isArray(transfer_info)" t-out="transfer_info[1]"/><t t-else="" t-out="transfer_info"/></span>
                                             </div>
                                         </t>
                                     </div>
