@@ -138,11 +138,17 @@ export class Calls extends Component {
             )
             
             // Determine if this user received a transfer
+            // transferred_users is an array of user objects with [id, name] format
             item.is_transfer_recipient = (
                 item.transferred_users && 
                 item.transferred_users.length > 0 && 
-                item.transferred_users.some(user_id => user_id === this.user)
+                item.transferred_users.some(user => user[0] === this.user)
             )
+            
+            // Debug logging
+            if (item.transferred_users && item.transferred_users.length > 0) {
+                console.log('Call has transfers:', item.id, 'transferred_users:', item.transferred_users, 'current user:', this.user, 'is_recipient:', item.is_transfer_recipient);
+            }
             
             // For transfer recipients, we want to show the original caller info
             // instead of the transferring user's info
@@ -156,6 +162,7 @@ export class Calls extends Component {
                     original_partner: item.partner,
                     transferring_user: item.answered_user
                 }
+                console.log('Transfer recipient display info:', item.id, item.display_caller_info);
             } else {
                 item.display_caller_info = {
                     is_transfer: false

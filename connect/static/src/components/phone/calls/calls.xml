@@ -163,14 +163,14 @@
                                     <div class="card-date" t-attf-class="{{call.is_missed ? 'missed-call-text' : ''}}">
                                         <span class="icon-call"/>
                                         <t t-out="caller"/>
-                                        <!-- Show transfer information -->
-                                        <t t-if="call.is_transfer_recipient and transfer_info">
-                                            <div class="transfer-info">
-                                                <i class="fa fa-share me-1" title="Transferred"/>
-                                                <span class="transfer-text">via <t t-if="Array.isArray(transfer_info)" t-out="transfer_info[1]"/><t t-else="" t-out="transfer_info"/></span>
-                                            </div>
-                                        </t>
                                     </div>
+                                    <!-- Show transfer information on separate line -->
+                                    <t t-if="call.is_transfer_recipient and transfer_info">
+                                        <div class="card-date transfer-info">
+                                            <i class="fa fa-share me-1" title="Transferred"/>
+                                            <span class="transfer-text">via <t t-if="Array.isArray(transfer_info)" t-out="transfer_info[1]"/><t t-else="" t-out="transfer_info"/></span>
+                                        </div>
+                                    </t>
                                 </div>
                                 <div class="o_favorite">
                                     <button aria-label="Favorite" t-attf-title="Add {{caller_id}} to Favorites"
