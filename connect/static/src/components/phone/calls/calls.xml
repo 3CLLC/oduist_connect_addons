@@ -150,10 +150,13 @@
                                      t-on-click="() => this._onClickContactCall(caller)"
                                      t-attf-title="Call to {{caller}}"
                                      t-attf-class="{{call.is_transfer_recipient ? 'transfer-call' : ''}}">
-                                    <!-- Ring group indicator in top right - TEMPORARY: showing for all calls -->
-                                    <i class="fa fa-people-group ring-group-indicator" title="Ring Group Call - Multiple people called"/>
-                                    <!-- Debug: also show call pattern as text -->
-                                    <span class="ring-group-indicator" style="top: 25px; font-size: 10px;"><t t-out="call.call_pattern"/></span>
+                                    <!-- Call type badge in top right -->
+                                    <t t-if="call.call_pattern === 'ring_group'">
+                                        <span class="call-type-badge ring-group-badge" title="Ring Group Call - Multiple people called">Group</span>
+                                    </t>
+                                    <t t-else="">
+                                        <span class="call-type-badge direct-call-badge" title="Direct Call - Called one person">Direct</span>
+                                    </t>
                                     <div>
                                         <div class="card-identifier" t-attf-class="{{call.is_missed ? 'missed-call-text' : ''}}">
                                             <t t-out="caller_id"/>

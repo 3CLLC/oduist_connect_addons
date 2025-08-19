@@ -73,17 +73,28 @@ $color-missed-call-bg: #f8d7da;
           cursor: pointer;
         }
 
-        // Ring group indicator in top right corner
-        .ring-group-indicator {
+        // Call type badges in top right corner
+        .call-type-badge {
           position: absolute;
-          top: 5px;
-          right: 8px;
-          font-size: 14px;
-          color: #6c757d;
-          opacity: 0.8;
-
-          &:hover {
-            opacity: 1;
+          top: 4px;
+          right: 6px;
+          font-size: 10px;
+          font-weight: 600;
+          text-transform: uppercase;
+          padding: 2px 6px;
+          border-radius: 10px;
+          z-index: 10;
+          
+          &.ring-group-badge {
+            background-color: #e7f3ff;
+            color: #0066cc;
+            border: 1px solid #cce7ff;
+          }
+          
+          &.direct-call-badge {
+            background-color: #f0f9ff;
+            color: #0284c7;
+            border: 1px solid #bae6fd;
           }
         }
 
