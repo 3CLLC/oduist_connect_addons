@@ -121,6 +121,14 @@ export class Calls extends Component {
         const domain = ["|", ["caller_user", "=", this.user], ["called_users", "=", this.user]]
         const records = await this.orm.call("connect.call", "get_widget_calls", [domain, 20])
         for (const item of records) {
+            // Debug ALL calls to see call_pattern values
+            console.log('ALL CALLS DEBUG:', item.id, {
+                call_pattern: item.call_pattern,
+                direction: item.direction,
+                status: item.status,
+                transferred_users: item.transferred_users?.length || 0
+            });
+            
             // For incoming calls, always use caller (external party) for callback/favorites
             // For outgoing calls, use called (who we called)
             const call_number = item.direction === 'incoming' ? item.caller : item.called
@@ -153,6 +161,13 @@ export class Calls extends Component {
                 item.transferred_users.includes(this.user) &&
                 !was_originally_called  // Only true transfer recipients, not original ring group members
             )
+            
+            // Debug logging for call patterns
+            console.log('Call pattern debug:', item.id, {
+                call_pattern: item.call_pattern,
+                direction: item.direction,
+                transferred_users: item.transferred_users?.length || 0
+            });
             
             // Debug logging for transfer scenarios only
             if (item.transferred_users && item.transferred_users.length > 0) {
