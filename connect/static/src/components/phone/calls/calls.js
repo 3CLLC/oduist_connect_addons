@@ -121,7 +121,9 @@ export class Calls extends Component {
         const domain = ["|", ["caller_user", "=", this.user], ["called_users", "=", this.user]]
         const records = await this.orm.call("connect.call", "get_widget_calls", [domain, 20])
         for (const item of records) {
-            const call_number = item.called_users[0] === this.user ? item.caller : item.called
+            // For incoming calls, always use caller (external party) for callback/favorites
+            // For outgoing calls, use called (who we called)
+            const call_number = item.direction === 'incoming' ? item.caller : item.called
             item.favorite = this.favorites.includes(call_number)
             const local_time = new Date(`${item.create_date} UTC`).toLocaleTimeString("en-GB")
             item.create_date = `${item.create_date.split(' ')[0]} ${local_time}`
@@ -152,19 +154,15 @@ export class Calls extends Component {
                 !was_originally_called  // Only true transfer recipients, not original ring group members
             )
             
-            // Debug logging for ALL calls to understand the data structure
-            console.log('Call debug:', item.id, {
-                transferred_users: item.transferred_users,
-                called_users: item.called_users,
-                current_user: this.user,
-                was_originally_called: was_originally_called,
-                is_transfer_recipient: item.is_transfer_recipient,
-                call_pattern: item.call_pattern,
-                direction: item.direction,
-                status: item.status,
-                answered_user: item.answered_user,
-                completed_by_user: item.completed_by_user
-            });
+            // Debug logging for transfer scenarios only
+            if (item.transferred_users && item.transferred_users.length > 0) {
+                console.log('Transfer call debug:', item.id, {
+                    transferred_users: item.transferred_users,
+                    called_users: item.called_users,
+                    is_transfer_recipient: item.is_transfer_recipient,
+                    was_originally_called: was_originally_called
+                });
+            }
             
             // For transfer recipients, we want to show the original caller info
             // instead of the transferring user's info

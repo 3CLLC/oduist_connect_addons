@@ -71,12 +71,14 @@
                             <t t-set="caller" t-value="call.display_caller_info.original_caller"/>
                             <t t-set="transfer_info" t-value="call.display_caller_info.transferring_user"/>
                         </t>
-                        <!-- Regular call logic -->
-                        <t t-elif="call.called_users[0] === user">
+                        <!-- Regular incoming call logic -->
+                        <t t-elif="call.direction === 'incoming'">
+                            <!-- For incoming calls, always show external caller info -->
                             <t t-set="caller_id" t-value="call.partner or call.caller_user or call.caller"/>
                             <t t-set="caller" t-value="call.caller"/>
                             <t t-set="transfer_info" t-value="false"/>
                         </t>
+                        <!-- Outgoing call logic -->
                         <t t-else="">
                             <t t-set="called_users" t-value="call.called_users.length > 0 ? call.called_users : false"/>
                             <t t-set="caller_id" t-value="call.partner or called_users or call.called"/>
@@ -106,24 +108,33 @@
                                 <t t-set="avatar" t-value="'/connect/static/src/images/default_contact.jpg'"/>
                             </t>
                         </t>
-                        <t t-elif="call.partner">
-                            <!-- Regular call: Show partner avatar -->
-                            <t t-set="full_caller_id" t-value="caller_id"/>
-                            <t t-if="caller_id and caller_id.includes and caller_id.includes(',')">
-                                <t t-set="caller_list" t-value="caller_id.split(',')"/>
-                                <t t-set="caller_id" t-value="caller_list[caller_list.length -1].trim()"/>
+                        <t t-elif="call.direction === 'incoming'">
+                            <!-- Incoming call: Show external caller avatar (partner or default) -->
+                            <t t-if="call.partner">
+                                <t t-set="full_caller_id" t-value="caller_id"/>
+                                <t t-if="caller_id and caller_id.includes and caller_id.includes(',')">
+                                    <t t-set="caller_list" t-value="caller_id.split(',')"/>
+                                    <t t-set="caller_id" t-value="caller_list[caller_list.length -1].trim()"/>
+                                </t>
+                                <t t-set="avatar" t-value="'/web/image?model=res.partner&amp;field=avatar_128&amp;id=' + call.partner[0]"/>
                             </t>
-                            <t t-set="avatar" t-value="'/web/image?model=res.partner&amp;field=avatar_128&amp;id=' + call.partner[0]"/>
+                            <t t-elif="call.caller_user">
+                                <!-- External caller is an internal user -->
+                                <t t-set="avatar" t-value="'/web/image?model=res.users&amp;field=avatar_128&amp;id=' + call.caller_user[0]"/>
+                            </t>
+                            <t t-else="">
+                                <!-- Default external caller avatar -->
+                                <t t-set="avatar" t-value="'/connect/static/src/images/default_contact.jpg'"/>
+                            </t>
                         </t>
                         <t t-else="">
+                            <!-- Outgoing call: Show called party avatar -->
                             <t t-set="avatar" t-value="'/connect/static/src/images/default_contact.jpg'"/>
-                            <!-- Regular incoming call: Show caller user avatar -->
-                            <t t-if="call.called_users[0] === user">
-                                <t t-if="call.caller_user" t-set="avatar" t-value="'/web/image?model=res.users&amp;field=avatar_128&amp;id=' + call.caller_user[0]"/>
+                            <t t-if="call.partner">
+                                <t t-set="avatar" t-value="'/web/image?model=res.partner&amp;field=avatar_128&amp;id=' + call.partner[0]"/>
                             </t>
-                            <!-- Regular outgoing call: Show called user avatar -->
-                            <t t-else="">
-                                <t t-if="call.called_users.length > 0" t-set="avatar" t-value="'/web/image?model=res.users&amp;field=avatar_128&amp;id=' + call.called_users[0]"/>
+                            <t t-elif="call.called_users.length > 0">
+                                <t t-set="avatar" t-value="'/web/image?model=res.users&amp;field=avatar_128&amp;id=' + call.called_users[0]"/>
                             </t>
                         </t>
 
