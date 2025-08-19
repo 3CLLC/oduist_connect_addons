@@ -12,6 +12,11 @@ $color-missed-call-bg: #f8d7da;
     tr {
       height: 62px;
       border-bottom: 1px solid $o-brand-odoo;
+      
+      // Increase height for transfer calls that have an extra line
+      &.transfer-call {
+        height: 78px;
+      }
 
       &:hover {
         background-color: $color-light-gray;
