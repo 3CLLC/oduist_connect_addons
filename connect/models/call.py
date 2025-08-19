@@ -782,10 +782,14 @@ class Call(models.Model):
         # Register call only when ALL channels have ended (call truly finished)
         # Check if this channel ending means the entire call is complete
         all_channels_ended = all(ch.status in CALL_END_STATUSES for ch in channel.call.channels)
+        logger.info(f"Call {channel.call.id}: Channel {channel.sid} ended with status {params.get('CallStatus')}. All channels ended: {all_channels_ended}. Channel statuses: {[(ch.sid, ch.status) for ch in channel.call.channels]}")
         if all_channels_ended and params.get('CallStatus') in CALL_END_STATUSES:
+            logger.info(f"Call {channel.call.id}: All channels ended - processing final call details and notifications")
             # NOW do all the final call processing
             channel.call._finalize_call_details()
             self.register_call(channel, params)
+        else:
+            logger.info(f"Call {channel.call.id}: Not all channels ended yet - skipping final processing")
         # Reload call view
         self.env['connect.settings'].connect_reload_view('connect.call')
         if params.get('ErrorCode') and params.get('ErrorCode') not in IGNORE_ERROR_CODES:
@@ -1110,14 +1114,6 @@ class Call(models.Model):
 
     def register_call(self, channel, params):
         try:
-            # Prevent duplicate notifications for multi-channel calls (like ring groups)
-            if channel.call.notifications_sent:
-                logger.info(f"Call {channel.call.id}: Notifications already sent, skipping duplicate notification processing")
-                return
-            
-            # Mark notifications as sent to prevent duplicates
-            channel.call.notifications_sent = True
-            
             notify_users = []
             transfer_missed_users = []  # Track users who missed transfers specifically
             
