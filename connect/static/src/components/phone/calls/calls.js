@@ -138,11 +138,11 @@ export class Calls extends Component {
             )
             
             // Determine if this user received a transfer
-            // transferred_users is an array of user objects with [id, name] format
+            // transferred_users is an array of user IDs
             item.is_transfer_recipient = (
                 item.transferred_users && 
                 item.transferred_users.length > 0 && 
-                item.transferred_users.some(user => user[0] === this.user)
+                item.transferred_users.includes(this.user)
             )
             
             // Debug logging
