@@ -777,13 +777,24 @@ class Call(models.Model):
                 params.get('To').startswith('sip:')):
             # Desktop notification only for SIP calls.
             channel.connect_notify()
-        # Register call only when ALL channels have ended (call truly finished)
-        # Check if this channel ending means the entire call is complete
-        all_channels_ended = all(ch.status in CALL_END_STATUSES for ch in channel.call.channels)
-        if all_channels_ended and params.get('CallStatus') in CALL_END_STATUSES:
+        # Register call only when the PARENT channel ends (call truly finished)
+        # The parent channel stays open for the entire call duration, regardless of child channel activity
+        is_parent_channel_ending = (not channel.parent_channel and 
+                                   params.get('CallStatus') in CALL_END_STATUSES)
+        
+        if is_parent_channel_ending:
+            # Parent channel is ending - the call is truly finished
             # NOW do all the final call processing
+            logger.info(f"Call {channel.call.id}: Parent channel ending - performing final call processing")
             channel.call._finalize_call_details()
             self.register_call(channel, params)
+        else:
+            # This is either a child channel ending or parent channel in intermediate state
+            # Just update call state but don't send notifications yet
+            if channel.parent_channel:
+                logger.info(f"Call {channel.call.id}: Child channel {channel.sid} ending with status {params.get('CallStatus')} - no final processing yet")
+            else:
+                logger.info(f"Call {channel.call.id}: Parent channel {channel.sid} in intermediate state {params.get('CallStatus')} - no final processing yet")
         # Reload call view
         self.env['connect.settings'].connect_reload_view('connect.call')
         if params.get('ErrorCode') and params.get('ErrorCode') not in IGNORE_ERROR_CODES:
