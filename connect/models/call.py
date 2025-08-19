@@ -79,6 +79,8 @@ class Call(models.Model):
     has_error = fields.Boolean(index=True)
     error_code = fields.Char(readonly=True)
     error_message = fields.Text(readonly=True)
+    # Flag to prevent duplicate notifications for multi-channel calls
+    notifications_sent = fields.Boolean(default=False, readonly=True)
 
     def _get_name(self):
         for rec in self:
@@ -1108,6 +1110,14 @@ class Call(models.Model):
 
     def register_call(self, channel, params):
         try:
+            # Prevent duplicate notifications for multi-channel calls (like ring groups)
+            if channel.call.notifications_sent:
+                logger.info(f"Call {channel.call.id}: Notifications already sent, skipping duplicate notification processing")
+                return
+            
+            # Mark notifications as sent to prevent duplicates
+            channel.call.notifications_sent = True
+            
             notify_users = []
             transfer_missed_users = []  # Track users who missed transfers specifically
             
