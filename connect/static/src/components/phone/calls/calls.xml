@@ -134,10 +134,11 @@
                                     <img class="rounded-circle o_user_avatar" alt="User" t-att-src="avatar"/>
                                 </div>
                             </td>
-                            <td class="o_history_info w-100 d-flex flex-row" t-attf-class="{{call.is_missed ? 'missed-call' : ''}}">
+                            <td class="o_history_info w-100 d-flex flex-row" t-attf-class="{{call.is_missed ? 'missed-call' : ''}} {{call.is_transfer_recipient ? 'transfer-call' : ''}}">
                                 <div class="d-flex flex-column info-card"
                                      t-on-click="() => this._onClickContactCall(caller)"
-                                     t-attf-title="Call to {{caller}}">
+                                     t-attf-title="Call to {{caller}}"
+                                     t-attf-class="{{call.is_transfer_recipient ? 'transfer-call' : ''}}">
                                     <div>
                                         <div class="card-identifier" t-attf-class="{{call.is_missed ? 'missed-call-text' : ''}}">
                                             <t t-out="caller_id"/>
