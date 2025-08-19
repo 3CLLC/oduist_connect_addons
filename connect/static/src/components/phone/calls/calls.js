@@ -152,10 +152,19 @@ export class Calls extends Component {
                 !was_originally_called  // Only true transfer recipients, not original ring group members
             )
             
-            // Debug logging
-            if (item.transferred_users && item.transferred_users.length > 0) {
-                console.log('Call has transfers:', item.id, 'transferred_users:', item.transferred_users, 'called_users:', item.called_users, 'called_users content:', item.called_users?.map(u => u), 'current user:', this.user, 'was_originally_called:', was_originally_called, 'is_recipient:', item.is_transfer_recipient);
-            }
+            // Debug logging for ALL calls to understand the data structure
+            console.log('Call debug:', item.id, {
+                transferred_users: item.transferred_users,
+                called_users: item.called_users,
+                current_user: this.user,
+                was_originally_called: was_originally_called,
+                is_transfer_recipient: item.is_transfer_recipient,
+                call_pattern: item.call_pattern,
+                direction: item.direction,
+                status: item.status,
+                answered_user: item.answered_user,
+                completed_by_user: item.completed_by_user
+            });
             
             // For transfer recipients, we want to show the original caller info
             // instead of the transferring user's info
