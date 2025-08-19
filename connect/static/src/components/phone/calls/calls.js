@@ -142,7 +142,9 @@ export class Calls extends Component {
             // A true transfer recipient is someone who:
             // 1. Is in transferred_users AND
             // 2. Was NOT in the original called_users (original ring group)
-            const was_originally_called = item.called_users && item.called_users.some(user_id => user_id === this.user);
+            const was_originally_called = item.called_users && item.called_users.some(user_id => 
+                parseInt(user_id) === parseInt(this.user)  // Ensure both are same data type
+            );
             item.is_transfer_recipient = (
                 item.transferred_users && 
                 item.transferred_users.length > 0 && 
@@ -152,7 +154,7 @@ export class Calls extends Component {
             
             // Debug logging
             if (item.transferred_users && item.transferred_users.length > 0) {
-                console.log('Call has transfers:', item.id, 'transferred_users:', item.transferred_users, 'called_users:', item.called_users, 'current user:', this.user, 'was_originally_called:', was_originally_called, 'is_recipient:', item.is_transfer_recipient);
+                console.log('Call has transfers:', item.id, 'transferred_users:', item.transferred_users, 'called_users:', item.called_users, 'called_users content:', item.called_users?.map(u => u), 'current user:', this.user, 'was_originally_called:', was_originally_called, 'is_recipient:', item.is_transfer_recipient);
             }
             
             // For transfer recipients, we want to show the original caller info
