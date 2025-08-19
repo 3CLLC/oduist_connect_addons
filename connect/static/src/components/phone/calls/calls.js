@@ -125,6 +125,17 @@ export class Calls extends Component {
             item.favorite = this.favorites.includes(call_number)
             const local_time = new Date(`${item.create_date} UTC`).toLocaleTimeString("en-GB")
             item.create_date = `${item.create_date.split(' ')[0]} ${local_time}`
+            
+            // Determine if this is a missed call
+            item.is_missed = (
+                // Regular missed call: incoming, nobody answered
+                (item.direction === 'incoming' && 
+                 ['no-answer', 'busy', 'failed'].includes(item.status) && 
+                 !item.answered_user) 
+                ||
+                // Missed transfer: transfer occurred but nobody completed it
+                (item.transferred_users && item.transferred_users.length > 0 && !item.completed_by_user)
+            )
         }
         this.state.calls = records
 

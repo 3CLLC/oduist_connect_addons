@@ -1,4 +1,6 @@
 $color-light-gray: #e9ecef;
+$color-missed-call: #dc3545;
+$color-missed-call-bg: #f8d7da;
 //History
 .o_history_list {
   height: 455px;
@@ -117,4 +119,36 @@ $color-light-gray: #e9ecef;
       cursor: pointer;
     }
   }
+}
+
+// Missed call styling
+.missed-call {
+  background-color: $color-missed-call-bg !important;
+  
+  &:hover {
+    background-color: lighten($color-missed-call-bg, 2%) !important;
+  }
+}
+
+.missed-call-text {
+  color: $color-missed-call !important;
+  font-weight: 600;
+}
+
+.missed-call-icon {
+  color: $color-missed-call !important;
+  font-size: 14px;
+}
+
+// Enhanced call status icons
+.call-status-completed {
+  color: #28a745; // Green for completed calls
+}
+
+.call-status-failed {
+  color: $color-missed-call; // Red for failed calls
+}
+
+.call-status-busy {
+  color: #ffc107; // Yellow for busy calls
 }

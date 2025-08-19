@@ -101,25 +101,43 @@
                                     <img class="rounded-circle o_user_avatar" alt="User" t-att-src="avatar"/>
                                 </div>
                             </td>
-                            <td class="o_history_info w-100 d-flex flex-row">
+                            <td class="o_history_info w-100 d-flex flex-row" t-attf-class="{{call.is_missed ? 'missed-call' : ''}}">
                                 <div class="d-flex flex-column info-card"
                                      t-on-click="() => this._onClickContactCall(caller)"
                                      t-attf-title="Call to {{caller}}">
                                     <div>
-                                        <div class="card-identifier">
+                                        <div class="card-identifier" t-attf-class="{{call.is_missed ? 'missed-call-text' : ''}}">
                                             <t t-out="caller_id"/>
                                         </div>
                                     </div>
-                                    <div class="card-date">
-                                        <t t-if="call.called_users[0] === user">
-                                            <span class="icon-call_received me-2"/>
+                                    <div class="card-date" t-attf-class="{{call.is_missed ? 'missed-call-text' : ''}}">
+                                        <t t-if="call.is_missed">
+                                            <!-- Missed call icon -->
+                                            <t t-if="call.transferred_users and call.transferred_users.length > 0">
+                                                <i class="fa fa-times-circle me-2 missed-call-icon" title="Missed Transfer"/>
+                                            </t>
+                                            <t t-else="">
+                                                <i class="fa fa-times-circle me-2 missed-call-icon" title="Missed Call"/>
+                                            </t>
                                         </t>
                                         <t t-else="">
-                                            <span class="icon-call_made me-2"/>
+                                            <!-- Ring group calls show group icon -->
+                                            <t t-if="call.call_pattern === 'ring_group'">
+                                                <i class="fa fa-people-group me-2" title="Ring Group Call"/>
+                                            </t>
+                                            <t t-else="">
+                                                <!-- Direct call icons (existing arrows) -->
+                                                <t t-if="call.called_users[0] === user">
+                                                    <span class="icon-call_received me-2"/>
+                                                </t>
+                                                <t t-else="">
+                                                    <span class="icon-call_made me-2"/>
+                                                </t>
+                                            </t>
                                         </t>
                                         <t t-out="call.create_date"/>
                                     </div>
-                                    <div class="card-date">
+                                    <div class="card-date" t-attf-class="{{call.is_missed ? 'missed-call-text' : ''}}">
                                         <span class="icon-call"/>
                                         <t t-out="caller"/>
                                     </div>

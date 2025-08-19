@@ -1048,7 +1048,7 @@ class Call(models.Model):
         # Add transfer context
         transfer_info = ""
         if channel.call.answered_user:
-            transfer_info = f" Call transferred to you by: {channel.call.answered_user.name}."
+            transfer_info = f" Call transferred to you by {channel.call.answered_user.name}."
         
         # Build body with call details link
         body = Markup(f"You missed a call from {caller_display}.{transfer_info}{call_link}")
@@ -1359,5 +1359,10 @@ class Call(models.Model):
             "called_users",
             "partner",
             "create_date",
-            "direction"
+            "direction",
+            "status",
+            "answered_user",
+            "completed_by_user",
+            "transferred_users",
+            "call_pattern"
         ]
