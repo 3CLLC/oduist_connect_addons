@@ -4,6 +4,7 @@ import json
 import logging
 import re
 from urllib.parse import urljoin
+from markupsafe import Markup
 import uuid
 from odoo import fields, models, api, release, SUPERUSER_ID, tools
 from odoo.exceptions import ValidationError
@@ -1041,17 +1042,16 @@ class Call(models.Model):
         else:
             caller_display = "Unknown"
 
+        # Build link to call details
+        call_link = f" <a href='/web#id={channel.call.id}&model=connect.call&view_type=form'>Click to view the call details</a>."
+
         # Add transfer context
         transfer_info = ""
         if channel.call.answered_user:
             transfer_info = f" Call transferred to you by: {channel.call.answered_user.name}."
         
         # Build body with call details link
-        body = f"You missed a call from {caller_display}.{transfer_info}"
-        
-        # Add call record link
-        call_link = f"/web#id={channel.call.id}&model=connect.call&view_type=form"
-        body += f" <a href='{call_link}'>Click to view the call details</a>."
+        body = Markup(f"You missed a call from {caller_display}.{transfer_info}{call_link}")
 
         subject = f"Missed call from {caller_display}"
 
@@ -1178,6 +1178,8 @@ class Call(models.Model):
                            notify_users and 
                            (channel.call.status not in statuses or channel.call.transferred_users))
             if should_notify:
+                # Deduplicate notify_users to prevent multiple notifications to the same user
+                notify_users = list(set(notify_users))
                 debug(self, 'Missed call notification to users: {}'.format(notify_users))
                 
                 # Send different messages for transfer recipients vs regular missed calls
