@@ -4,7 +4,6 @@ import json
 import logging
 import re
 from urllib.parse import urljoin
-from markupsafe import Markup
 import uuid
 from odoo import fields, models, api, release, SUPERUSER_ID, tools
 from odoo.exceptions import ValidationError
@@ -83,9 +82,56 @@ class Call(models.Model):
     def _get_name(self):
         for rec in self:
             try:
-                started = fields.Datetime.context_timestamp(rec, rec.create_date)
-                formatted_time = fields.Datetime.to_string(started)
-                rec.name = '{} {} call at {}'.format(rec.status, rec.direction, formatted_time).capitalize()
+                # Check if this is a missed call for notification purposes
+                is_missed_call = (
+                    # Regular missed call: incoming, nobody answered
+                    (rec.direction == 'incoming' and 
+                     rec.status in ['no-answer', 'busy', 'failed'] and 
+                     not rec.answered_user) 
+                    or
+                    # Missed transfer: transfer occurred but nobody completed it
+                    (rec.transferred_users and not rec.completed_by_user)
+                )
+                
+                if is_missed_call:
+                    # Use missed call format for notification titles
+                    caller_name = None
+                    caller_number = rec.caller
+                    
+                    # Try to get contact name from partner
+                    if rec.partner:
+                        caller_name = rec.partner.name
+                    elif rec.caller_user:
+                        caller_name = rec.caller_user.name
+                    
+                    # Format the caller display
+                    if caller_name and caller_number:
+                        caller_display = f"{caller_name} ({caller_number})"
+                    elif caller_name:
+                        caller_display = caller_name
+                    elif caller_number:
+                        caller_display = caller_number
+                    else:
+                        caller_display = "Unknown"
+                    
+                    rec.name = f"Missed call from {caller_display}"
+                else:
+                    # Use standard format with Eastern Time for regular calls
+                    call_datetime = rec.create_date
+                    try:
+                        import pytz
+                        eastern = pytz.timezone('US/Eastern')
+                        utc_datetime = pytz.utc.localize(call_datetime)
+                        eastern_datetime = utc_datetime.astimezone(eastern)
+                        
+                        # Determine if EST or EDT
+                        timezone_name = eastern_datetime.strftime('%Z')  # EST or EDT
+                        formatted_date = eastern_datetime.strftime(f'%B %d, %Y at %I:%M %p {timezone_name}')
+                    except:
+                        # Fallback if timezone conversion fails
+                        formatted_date = call_datetime.strftime('%B %d, %Y at %I:%M %p EST')
+                    
+                    rec.name = '{} {} call {}'.format(rec.status, rec.direction, formatted_date).capitalize()
             except Exception:
                 logger.exception('Call name compute error:')
                 # Show just call ID if we failed to render the name above.
@@ -994,31 +1040,18 @@ class Call(models.Model):
             caller_display = caller_number
         else:
             caller_display = "Unknown"
-        
-        # Convert to Eastern Time
-        call_datetime = channel.create_date
-        try:
-            import pytz
-            eastern = pytz.timezone('US/Eastern')
-            utc_datetime = pytz.utc.localize(call_datetime)
-            eastern_datetime = utc_datetime.astimezone(eastern)
-            
-            # Determine if EST or EDT
-            timezone_name = eastern_datetime.strftime('%Z')  # EST or EDT
-            formatted_date = eastern_datetime.strftime(f'%B %d, %Y at %I:%M %p {timezone_name}')
-        except:
-            # Fallback if timezone conversion fails
-            formatted_date = call_datetime.strftime('%B %d, %Y at %I:%M %p EST')
 
         # Add transfer context
-        transfer_info = False
+        transfer_info = ""
         if channel.call.answered_user:
-            transfer_info = f"<p>Call transferred to you by: {channel.call.answered_user.name}</p>"
+            transfer_info = f" Call transferred to you by: {channel.call.answered_user.name}."
         
-        if transfer_info:
-            body = Markup(f"<p>Missed call from {caller_display}</p>{transfer_info}<p>{formatted_date}</p>")
-        else:
-            body = Markup(f"<p>Missed call from {caller_display}</p><p>{formatted_date}</p>")
+        # Build body with call details link
+        body = f"You missed a call from {caller_display}.{transfer_info}"
+        
+        # Add call record link
+        call_link = f"/web#id={channel.call.id}&model=connect.call&view_type=form"
+        body += f" <a href='{call_link}'>Click to view the call details</a>."
 
         subject = f"Missed call from {caller_display}"
 
