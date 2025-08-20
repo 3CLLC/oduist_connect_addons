@@ -604,7 +604,16 @@ class Call(models.Model):
             current_transfer_ids = self.transferred_users.ids
             if user.id not in current_transfer_ids:
                 self.transferred_users = [(4, user.id)]  # Add user to many2many
-                logger.info(f"Call {self.id}: Transfer initiated to {user.login} (added to transferred_users)")
+                
+                # Set webhook expectation for transfer channel
+                self._set_webhook_expectation('transfer', {
+                    'expected_count': 1,
+                    'received_count': 0,
+                    'target_user_id': user.id,
+                    'target_user_login': user.login
+                })
+                
+                logger.info(f"Call {self.id}: Transfer initiated to {user.login} (added to transferred_users) - expecting 1 transfer channel")
                 
                 # Update call pattern if needed - transfers can help us understand the call type
                 if not self.call_pattern:
@@ -686,6 +695,72 @@ class Call(models.Model):
             self.transfer_context = None
         # Note: We don't clear transfer_completion_handled here as it's permanent state for the call
 
+    def _set_webhook_expectation(self, source, data):
+        """Set expectation for incoming webhook data"""
+        from odoo import fields
+        import datetime
+        
+        current_context = self.transfer_context or {}
+        if 'webhook_expectations' not in current_context:
+            current_context['webhook_expectations'] = {}
+        
+        current_context['webhook_expectations'][source] = {
+            'timestamp': fields.Datetime.now().isoformat(),
+            'expected_count': data.get('expected_count', 1),
+            'received_count': data.get('received_count', 0),
+            **data  # Include any additional data
+        }
+        
+        self.transfer_context = current_context
+        logger.info(f"Call {self.id}: Set {source} webhook expectation - expecting {data.get('expected_count', 1)} channels")
+
+    def _increment_webhook_expectation(self, source):
+        """Increment received count for webhook expectation and clear if complete"""
+        if not self.transfer_context:
+            return
+            
+        context = self.transfer_context
+        expectations = context.get('webhook_expectations', {})
+        
+        if source not in expectations:
+            return
+            
+        expectations[source]['received_count'] += 1
+        received = expectations[source]['received_count']
+        expected = expectations[source]['expected_count']
+        
+        logger.info(f"Call {self.id}: {source} expectation progress: {received}/{expected}")
+        
+        if received >= expected:
+            logger.info(f"Call {self.id}: {source} expectation fulfilled - clearing")
+            del expectations[source]
+        
+        context['webhook_expectations'] = expectations
+        self.transfer_context = context
+
+    def _has_pending_webhooks(self):
+        """Check if we're still expecting webhook data"""
+        if not self.transfer_context:
+            return False
+        
+        expectations = self.transfer_context.get('webhook_expectations', {})
+        if not expectations:
+            return False
+        
+        # Check for timeout (15 seconds)
+        from odoo import fields
+        import datetime
+        cutoff = fields.Datetime.now() - datetime.timedelta(seconds=15)
+        
+        for source, data in expectations.items():
+            timestamp = fields.Datetime.from_string(data['timestamp'])
+            if timestamp > cutoff:
+                return True  # Still within timeout window
+        
+        # All expectations have timed out
+        logger.warning(f"Call {self.id}: Webhook expectations timed out, proceeding with finalization")
+        return False
+
     def write(self, vals):
         return super().write(vals)
 
@@ -746,10 +821,17 @@ class Call(models.Model):
         if channel.called_user:
             # Use call_source to distinguish between original calls and transfers
             if hasattr(channel, 'call_source') and channel.call_source == 'transfer':
+                # Increment transfer webhook expectation when transfer channel is created
+                channel.call._increment_webhook_expectation('transfer')
                 logger.info(f"Skipped adding {channel.called_user.login} to called_users - call_source indicates this is a transfer recipient")
             else:
                 # This is an originally called user (direct_call, ring_group, or no call_source yet)
                 channel.call.called_users = [(4, channel.called_user.id)]
+                
+                # Increment webhook expectation if this is a ring group channel
+                if hasattr(channel, 'call_source') and channel.call_source == 'ring_group':
+                    channel.call._increment_webhook_expectation('ring_group')
+                
                 logger.info(f"Added {channel.called_user.login} to called_users - originally called user (call_source: {getattr(channel, 'call_source', 'None')}) for call {channel.call.id}")
         if channel.called_pbx_user:
             channel.call.called_pbx_users = [(4, channel.called_pbx_user.id)]
@@ -777,13 +859,26 @@ class Call(models.Model):
                 params.get('To').startswith('sip:')):
             # Desktop notification only for SIP calls.
             channel.connect_notify()
-        # Register call only when ALL channels have ended (call truly finished)
+        # Register call only when ALL channels have ended AND no pending webhook expectations
         # Check if this channel ending means the entire call is complete
         all_channels_ended = all(ch.status in CALL_END_STATUSES for ch in channel.call.channels)
-        if all_channels_ended and params.get('CallStatus') in CALL_END_STATUSES:
+        has_pending_webhooks = channel.call._has_pending_webhooks()
+        
+        if (all_channels_ended and 
+            params.get('CallStatus') in CALL_END_STATUSES and 
+            not has_pending_webhooks):
             # NOW do all the final call processing
+            logger.info(f"Call {channel.call.id}: All conditions met for finalization - no pending webhook expectations")
             channel.call._finalize_call_details()
             self.register_call(channel, params)
+        else:
+            if not all_channels_ended:
+                reason = "channels still active"
+            elif has_pending_webhooks:
+                reason = "pending webhook expectations"
+            else:
+                reason = "channel not ending"
+            logger.info(f"Call {channel.call.id}: Finalization deferred - {reason}")
         # Reload call view
         self.env['connect.settings'].connect_reload_view('connect.call')
         if params.get('ErrorCode') and params.get('ErrorCode') not in IGNORE_ERROR_CODES:

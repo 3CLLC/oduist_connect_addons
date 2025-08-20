@@ -93,7 +93,17 @@ class CallFlow(models.Model):
                     target_extension.dst and target_extension.dst.ring_users):
                     # This choice leads to a ring group
                     parent_call.call_pattern = 'ring_group'
-                    logger.info(f"Call {parent_call.id}: Pattern set to 'ring_group' via gather_action (choice: {choice[0].choice_digits})")
+                    
+                    # Set webhook expectation for ring group channels
+                    expected_count = len(target_extension.dst.ring_users)
+                    parent_call._set_webhook_expectation('ring_group', {
+                        'expected_count': expected_count,
+                        'received_count': 0,
+                        'callflow_id': target_extension.dst.id,
+                        'source': 'gather_action'
+                    })
+                    
+                    logger.info(f"Call {parent_call.id}: Pattern set to 'ring_group' via gather_action (choice: {choice[0].choice_digits}) - expecting {expected_count} channels")
                 else:
                     # This choice leads to a direct extension
                     parent_call.call_pattern = 'direct_call'
@@ -135,7 +145,17 @@ class CallFlow(models.Model):
                 ], limit=1)
                 if call and not call.call_pattern:
                     call.call_pattern = 'ring_group'
-                    logger.info(f"Call {call.id}: Pattern set to 'ring_group' via render timeout (no user input)")
+                    
+                    # Set webhook expectation for ring group channels (timeout scenario)
+                    expected_count = len(self.ring_users)
+                    call._set_webhook_expectation('ring_group', {
+                        'expected_count': expected_count,
+                        'received_count': 0,
+                        'callflow_id': self.id,
+                        'source': 'render_timeout'
+                    })
+                    
+                    logger.info(f"Call {call.id}: Pattern set to 'ring_group' via render timeout (no user input) - expecting {expected_count} channels")
             
             callerId = request.get('Caller')
             # Hack to enable testing callflow from SIP or Client.
