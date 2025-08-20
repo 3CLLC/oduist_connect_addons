@@ -1365,10 +1365,8 @@ class Call(models.Model):
                 
                 logger.info(f"RULE 2: Normal completion (answered + completed, no transfers) - no notifications")
                 
-            # Rule 3: called_users + answered_user + transferred_users + NO completed_by_user → Only transferred users get notification
-            elif (channel.call.called_users and 
-                  channel.call.answered_user and 
-                  channel.call.transferred_users and 
+            # Rule 3: transferred_users + NO completed_by_user → Only transferred users get notification
+            elif (channel.call.transferred_users and 
                   not channel.call.completed_by_user):
                 
                 logger.info(f"RULE 3: Missed transfer - only transferred users get notifications")
