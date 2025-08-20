@@ -826,6 +826,30 @@ class Call(models.Model):
         
         return active_expectations
 
+    def _clear_webhook_expectations(self, source=None):
+        """Clear webhook expectations for this call, optionally for a specific source"""
+        if not hasattr(self.__class__, '_webhook_expectations'):
+            return
+            
+        call_key = f"call_{self.id}"
+        if call_key not in self.__class__._webhook_expectations:
+            return
+        
+        if source:
+            # Clear specific source expectation
+            expectations = self.__class__._webhook_expectations[call_key]
+            if source in expectations:
+                logger.info(f"Call {self.id}: Clearing {source} webhook expectation due to pattern change")
+                del expectations[source]
+                
+                # If no more expectations for this call, remove call entirely
+                if not expectations:
+                    del self.__class__._webhook_expectations[call_key]
+        else:
+            # Clear all expectations for this call
+            logger.info(f"Call {self.id}: Clearing all webhook expectations")
+            del self.__class__._webhook_expectations[call_key]
+
     def write(self, vals):
         return super().write(vals)
 

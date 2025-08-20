@@ -107,6 +107,10 @@ class CallFlow(models.Model):
                 else:
                     # This choice leads to a direct extension
                     parent_call.call_pattern = 'direct_call'
+                    
+                    # Clear any existing ring_group webhook expectations since pattern changed
+                    parent_call._clear_webhook_expectations('ring_group')
+                    
                     logger.info(f"Call {parent_call.id}: Pattern set to 'direct_call' via gather_action (choice: {choice[0].choice_digits})")
         
         return choice[0].exten.render(request=request)
