@@ -705,7 +705,7 @@ class Call(models.Model):
             current_context['webhook_expectations'] = {}
         
         current_context['webhook_expectations'][source] = {
-            'timestamp': fields.Datetime.now().isoformat(),
+            'timestamp': fields.Datetime.to_string(fields.Datetime.now()),
             'expected_count': data.get('expected_count', 1),
             'received_count': data.get('received_count', 0),
             **data  # Include any additional data
