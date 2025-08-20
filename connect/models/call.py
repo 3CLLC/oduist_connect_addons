@@ -695,29 +695,76 @@ class Call(models.Model):
             self.transfer_context = None
         # Note: We don't clear transfer_completion_handled here as it's permanent state for the call
 
-    def _set_webhook_expectation(self, source, data):
-        """Set expectation for incoming webhook data (in-memory storage)"""
+    @classmethod
+    def _cleanup_old_webhook_expectations(cls):
+        """Clean up old expectations (older than 10 minutes)"""
         from odoo import fields
         import datetime
         
-        if not hasattr(self, '_webhook_expectations'):
-            self._webhook_expectations = {}
+        if not hasattr(cls, '_webhook_expectations'):
+            return
+            
+        cutoff = fields.Datetime.now() - datetime.timedelta(minutes=10)
+        to_remove = []
         
-        self._webhook_expectations[source] = {
+        for call_key, expectations in cls._webhook_expectations.items():
+            empty_expectations = []
+            for source, data in expectations.items():
+                if data['timestamp'] < cutoff:
+                    empty_expectations.append(source)
+            
+            # Remove old expectations for this call
+            for source in empty_expectations:
+                del expectations[source]
+                
+            # If no expectations left for this call, mark call for removal
+            if not expectations:
+                to_remove.append(call_key)
+        
+        # Remove calls with no remaining expectations
+        for call_key in to_remove:
+            del cls._webhook_expectations[call_key]
+            
+        if to_remove:
+            logger.info(f"Cleaned up webhook expectations for {len(to_remove)} completed calls")
+
+    def _set_webhook_expectation(self, source, data):
+        """Set expectation for incoming webhook data (class-level in-memory storage)"""
+        from odoo import fields
+        import datetime
+        
+        # Clean up old expectations periodically (every ~50 calls)
+        import random
+        if random.randint(1, 50) == 1:
+            self.__class__._cleanup_old_webhook_expectations()
+        
+        # Use class-level storage with call ID as key
+        if not hasattr(self.__class__, '_webhook_expectations'):
+            self.__class__._webhook_expectations = {}
+        
+        call_key = f"call_{self.id}"
+        if call_key not in self.__class__._webhook_expectations:
+            self.__class__._webhook_expectations[call_key] = {}
+        
+        self.__class__._webhook_expectations[call_key][source] = {
             'timestamp': fields.Datetime.now(),
             'expected_count': data.get('expected_count', 1),
             'received_count': 0,
-            **{k: v for k, v in data.items() if k not in ['expected_count', 'received_count']}  # Include additional data
+            **{k: v for k, v in data.items() if k not in ['expected_count', 'received_count']}
         }
         
         logger.info(f"Call {self.id}: Set {source} webhook expectation - expecting {data.get('expected_count', 1)} channels")
 
     def _increment_webhook_expectation(self, source):
         """Increment received count for webhook expectation and clear if complete"""
-        if not hasattr(self, '_webhook_expectations'):
+        if not hasattr(self.__class__, '_webhook_expectations'):
             return
             
-        expectations = self._webhook_expectations
+        call_key = f"call_{self.id}"
+        if call_key not in self.__class__._webhook_expectations:
+            return
+            
+        expectations = self.__class__._webhook_expectations[call_key]
         
         if source not in expectations:
             return
@@ -731,13 +778,22 @@ class Call(models.Model):
         if received >= expected:
             logger.info(f"Call {self.id}: {source} expectation fulfilled - clearing")
             del expectations[source]
+            
+            # If no more expectations for this call, remove the call entirely
+            if not expectations:
+                logger.info(f"Call {self.id}: All webhook expectations complete - removing call from tracking")
+                del self.__class__._webhook_expectations[call_key]
 
     def _has_pending_webhooks(self):
         """Check if we're still expecting webhook data"""
-        if not hasattr(self, '_webhook_expectations'):
+        if not hasattr(self.__class__, '_webhook_expectations'):
             return False
         
-        expectations = self._webhook_expectations
+        call_key = f"call_{self.id}"
+        if call_key not in self.__class__._webhook_expectations:
+            return False
+        
+        expectations = self.__class__._webhook_expectations[call_key]
         if not expectations:
             return False
         
@@ -746,14 +802,29 @@ class Call(models.Model):
         import datetime
         cutoff = fields.Datetime.now() - datetime.timedelta(seconds=60)
         
+        active_expectations = False
+        timed_out_sources = []
+        
         for source, data in expectations.items():
             timestamp = data['timestamp']
             if timestamp > cutoff:
-                return True  # Still within timeout window
+                active_expectations = True  # Still within timeout window
+            else:
+                timed_out_sources.append(source)
         
-        # All expectations have timed out
-        logger.warning(f"Call {self.id}: Webhook expectations timed out after 60 seconds, proceeding with finalization")
-        return False
+        # Clean up timed out expectations
+        for source in timed_out_sources:
+            logger.warning(f"Call {self.id}: {source} expectation timed out after 60 seconds")
+            del expectations[source]
+        
+        # If no expectations left, remove call entirely
+        if not expectations:
+            del self.__class__._webhook_expectations[call_key]
+        
+        if timed_out_sources and not active_expectations:
+            logger.warning(f"Call {self.id}: All webhook expectations timed out, proceeding with finalization")
+        
+        return active_expectations
 
     def write(self, vals):
         return super().write(vals)
