@@ -696,31 +696,28 @@ class Call(models.Model):
         # Note: We don't clear transfer_completion_handled here as it's permanent state for the call
 
     def _set_webhook_expectation(self, source, data):
-        """Set expectation for incoming webhook data"""
+        """Set expectation for incoming webhook data (in-memory storage)"""
         from odoo import fields
         import datetime
         
-        current_context = self.transfer_context or {}
-        if 'webhook_expectations' not in current_context:
-            current_context['webhook_expectations'] = {}
+        if not hasattr(self, '_webhook_expectations'):
+            self._webhook_expectations = {}
         
-        current_context['webhook_expectations'][source] = {
-            'timestamp': fields.Datetime.to_string(fields.Datetime.now()),
+        self._webhook_expectations[source] = {
+            'timestamp': fields.Datetime.now(),
             'expected_count': data.get('expected_count', 1),
-            'received_count': data.get('received_count', 0),
-            **data  # Include any additional data
+            'received_count': 0,
+            **{k: v for k, v in data.items() if k not in ['expected_count', 'received_count']}  # Include additional data
         }
         
-        self.transfer_context = current_context
         logger.info(f"Call {self.id}: Set {source} webhook expectation - expecting {data.get('expected_count', 1)} channels")
 
     def _increment_webhook_expectation(self, source):
         """Increment received count for webhook expectation and clear if complete"""
-        if not self.transfer_context:
+        if not hasattr(self, '_webhook_expectations'):
             return
             
-        context = self.transfer_context
-        expectations = context.get('webhook_expectations', {})
+        expectations = self._webhook_expectations
         
         if source not in expectations:
             return
@@ -734,31 +731,28 @@ class Call(models.Model):
         if received >= expected:
             logger.info(f"Call {self.id}: {source} expectation fulfilled - clearing")
             del expectations[source]
-        
-        context['webhook_expectations'] = expectations
-        self.transfer_context = context
 
     def _has_pending_webhooks(self):
         """Check if we're still expecting webhook data"""
-        if not self.transfer_context:
+        if not hasattr(self, '_webhook_expectations'):
             return False
         
-        expectations = self.transfer_context.get('webhook_expectations', {})
+        expectations = self._webhook_expectations
         if not expectations:
             return False
         
-        # Check for timeout (15 seconds)
+        # Check for timeout (60 seconds - accounts for 8-option menu + user think time)
         from odoo import fields
         import datetime
-        cutoff = fields.Datetime.now() - datetime.timedelta(seconds=15)
+        cutoff = fields.Datetime.now() - datetime.timedelta(seconds=60)
         
         for source, data in expectations.items():
-            timestamp = fields.Datetime.from_string(data['timestamp'])
+            timestamp = data['timestamp']
             if timestamp > cutoff:
                 return True  # Still within timeout window
         
         # All expectations have timed out
-        logger.warning(f"Call {self.id}: Webhook expectations timed out, proceeding with finalization")
+        logger.warning(f"Call {self.id}: Webhook expectations timed out after 60 seconds, proceeding with finalization")
         return False
 
     def write(self, vals):
