@@ -1282,8 +1282,6 @@ class Call(models.Model):
     #         formatted_date = eastern_datetime.strftime(f'%B %d, %Y at %I:%M %p {timezone_name}')
     #     except:
     #         formatted_date = call_datetime.strftime('%B %d, %Y at %I:%M %p EST')
-        
-
 
     #     subject = f"Missed Call from {caller_display}"
     #     content = f""
