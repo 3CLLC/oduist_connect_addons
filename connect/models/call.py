@@ -915,13 +915,17 @@ class Call(models.Model):
                 logger.info(f"Skipped adding {channel.called_user.login} to called_users - call_source indicates this is a transfer recipient")
             else:
                 # This is an originally called user (direct_call, ring_group, or no call_source yet)
-                channel.call.called_users = [(4, channel.called_user.id)]
-                
-                # Increment webhook expectation if this is a ring group channel
-                if hasattr(channel, 'call_source') and channel.call_source == 'ring_group':
-                    channel.call._increment_webhook_expectation('ring_group')
-                
-                logger.info(f"Added {channel.called_user.login} to called_users - originally called user (call_source: {getattr(channel, 'call_source', 'None')}) for call {channel.call.id}")
+                # DUPLICATE PREVENTION: Check if user is already in called_users to prevent duplicate processing
+                if channel.called_user.id not in channel.call.called_users.ids:
+                    channel.call.called_users = [(4, channel.called_user.id)]
+                    
+                    # Increment webhook expectation if this is a ring group channel
+                    if hasattr(channel, 'call_source') and channel.call_source == 'ring_group':
+                        channel.call._increment_webhook_expectation('ring_group')
+                    
+                    logger.info(f"Added {channel.called_user.login} to called_users - originally called user (call_source: {getattr(channel, 'call_source', 'None')}) for call {channel.call.id}")
+                else:
+                    logger.info(f"Skipped adding {channel.called_user.login} to called_users - user already present (duplicate webhook prevention) for call {channel.call.id}")
         if channel.called_pbx_user:
             channel.call.called_pbx_users = [(4, channel.called_pbx_user.id)]
         # Check if we need to set a partner from child channel
