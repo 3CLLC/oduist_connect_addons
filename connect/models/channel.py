@@ -104,6 +104,7 @@ class Channel(models.Model):
         logger.info(f"Called: {params.get('Called')} | Caller: {params.get('Caller')}")
         logger.info(f"ParentCallSid: {params.get('ParentCallSid')}")
         logger.info(f"Duration: {params.get('CallDuration', 0)}")
+        logger.info(f"SequenceNumber: {params.get('SequenceNumber')}")
         logger.info(f"=== END WEBHOOK INFO ===")
         channel = self.search([('sid', '=', params['CallSid'])])
         if channel:
