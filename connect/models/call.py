@@ -952,16 +952,21 @@ class Call(models.Model):
                 params.get('To').startswith('sip:')):
             # Desktop notification only for SIP calls.
             channel.connect_notify()
-        # Register call only when ALL channels have ended AND no pending webhook expectations
+        # PARENT CALL AUTHORITY: Only finalize when processing parent call webhook
+        # Parent calls have no ParentCallSid, child calls have ParentCallSid set
+        is_parent_call_webhook = not params.get('ParentCallSid')
+        
+        # Register call only when ALL channels have ended AND no pending webhook expectations AND processing parent call
         # Check if this channel ending means the entire call is complete
         all_channels_ended = all(ch.status in CALL_END_STATUSES for ch in channel.call.channels)
         has_pending_webhooks = channel.call._has_pending_webhooks()
         
         if (all_channels_ended and 
             params.get('CallStatus') in CALL_END_STATUSES and 
-            not has_pending_webhooks):
+            not has_pending_webhooks and
+            is_parent_call_webhook):
             # NOW do all the final call processing
-            logger.info(f"Call {channel.call.id}: All conditions met for finalization - no pending webhook expectations")
+            logger.info(f"Call {channel.call.id}: All conditions met for finalization - parent call authority, no pending webhook expectations")
             channel.call._finalize_call_details()
             self.register_call(channel, params)
         else:
@@ -969,6 +974,8 @@ class Call(models.Model):
                 reason = "channels still active"
             elif has_pending_webhooks:
                 reason = "pending webhook expectations"
+            elif not is_parent_call_webhook:
+                reason = "child call webhook (parent call authority)"
             else:
                 reason = "channel not ending"
             logger.info(f"Call {channel.call.id}: Finalization deferred - {reason}")
