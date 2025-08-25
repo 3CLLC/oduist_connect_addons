@@ -180,11 +180,11 @@ class CallFlow(models.Model):
                 # Only add enabled device types
                 if user.ring_first == 'sip' and user.sip_enabled:
                     dial.sip('sip:{}'.format(user.uri),
-                            statusCallbackEvent='answered completed',
+                            statusCallbackEvent='completed',
                             statusCallback=status_url)
                 elif user.ring_first == 'client' and user.client_enabled:
                     client = Client(
-                        statusCallbackEvent='answered completed',
+                        statusCallbackEvent='completed',
                         statusCallback=status_url)
                     client.identity(user.uri)
                     client.parameter(name='CallerName', value=callerId)
@@ -193,12 +193,12 @@ class CallFlow(models.Model):
                 if (user.ring_second == 'sip' and user.sip_enabled and 
                     user.ring_second != user.ring_first):
                     dial.sip('sip:{}'.format(user.uri),
-                            statusCallbackEvent='answered completed',
+                            statusCallbackEvent='completed',
                             statusCallback=status_url)
                 elif (user.ring_second == 'client' and user.client_enabled and 
                     user.ring_second != user.ring_first):
                     client = Client(
-                        statusCallbackEvent='answered completed',
+                        statusCallbackEvent='completed',
                         statusCallback=status_url)
                     client.identity(user.uri)
                     client.parameter(name='CallerName', value=callerId)

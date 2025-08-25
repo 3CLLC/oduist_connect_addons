@@ -596,7 +596,7 @@ class Settings(models.Model):
     def get_external_call_route(self, number, callerId, status_url):
         twiml = """
         <Response>
-            <Dial callerId="{}"><Number statusCallback='{}' statusCallbackEvent='initiated answered completed'>{}</Number></Dial>
+            <Dial callerId="{}"><Number statusCallback='{}' statusCallbackEvent='initiated completed'>{}</Number></Dial>
         </Response>
         """.format(
             callerId, status_url, number

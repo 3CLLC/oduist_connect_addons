@@ -301,7 +301,7 @@ class User(models.Model):
             dial_sip = Dial(**dial_sip_kwargs)
             dial_sip.sip(
                 'sip:{}'.format(self.uri),
-                statusCallbackEvent='initiated answered completed',
+                statusCallbackEvent='initiated completed',
                 statusCallback=status_url)
 
         # Only create client dial if client is enabled
@@ -324,7 +324,7 @@ class User(models.Model):
                 })
             dial_client = Dial(**dial_client_kwargs)
             client = Client(
-                statusCallbackEvent='initiated answered completed',
+                statusCallbackEvent='initiated completed',
                 statusCallback=status_url)
             client.identity(self.uri)
             if caller_name:

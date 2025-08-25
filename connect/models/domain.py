@@ -359,7 +359,7 @@ class Domain(models.Model):
         dial.number(
             number,
             statusCallback=status_url,
-            statusCallbackEvent="initiated answered completed",
+            statusCallbackEvent="initiated completed",
         )
         response.append(dial)
         debug(self, "Originate external: %s" % pretty_xml(str(response)))
