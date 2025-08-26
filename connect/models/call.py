@@ -609,6 +609,19 @@ class Call(models.Model):
             if user.id not in current_transfer_ids:
                 self.transferred_users = [(4, user.id)]  # Add user to many2many
                 
+                # ADJUST RING GROUP EXPECTATIONS: When someone from ring group initiates transfer,
+                # we need to account for the fact that they're no longer part of the ring group expectation
+                if hasattr(self.__class__, '_webhook_expectations'):
+                    call_key = f"call_{self.id}"
+                    expectations = self.__class__._webhook_expectations.get(call_key, {})
+                    if 'ring_group' in expectations:
+                        ring_expectation = expectations['ring_group']
+                        current_expected = ring_expectation.get('expected_count', 0)
+                        if current_expected > 1:
+                            # Reduce expected count since one ring group member is now transferring
+                            ring_expectation['expected_count'] = current_expected - 1
+                            logger.info(f"Call {self.id}: Reduced ring_group expectation from {current_expected} to {current_expected - 1} due to transfer")
+                
                 # Set webhook expectation for transfer channel
                 self._set_webhook_expectation('transfer', {
                     'expected_count': 1,
