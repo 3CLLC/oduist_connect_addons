@@ -600,6 +600,11 @@ class CallForwardHandler(models.TransientModel):
             logger.info(f'If no answer, caller will reach voicemail automatically')
             logger.info(f'Missed call notifications will be sent to {user.name}')
             
+            # Register the transfer target in the call's transferred_users field
+            if call and user and hasattr(user, 'user'):
+                call.add_transferred_user(user.user)
+                logger.info(f'Added {user.user.login} to transferred_users for call {call.id}')
+            
             return True
             
         except Exception as e:
