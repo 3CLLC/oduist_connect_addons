@@ -225,10 +225,16 @@ class Channel(models.Model):
                 parent_channel_obj = self.browse(data['parent_channel'])
                 if parent_channel_obj.call and parent_channel_obj.call.call_pattern:
                     if parent_channel_obj.call.call_pattern == 'ring_group':
-                        # Check if this is actually a transfer in a ring group call
-                        if parent_channel_obj.call.transferred_users:
-                            data['call_source'] = 'transfer'
-                            logger.info(f"NEW CHANNEL: Tagged as 'transfer' (ring group call with {len(parent_channel_obj.call.transferred_users)} transferred users)")
+                        # Check if this channel's user is a transfer recipient or ring group participant
+                        if parent_channel_obj.call.transferred_users and data.get('called_pbx_user'):
+                            # Check if this specific user is a transfer recipient
+                            called_pbx_user_obj = self.env['connect.user'].browse(data['called_pbx_user'])
+                            if called_pbx_user_obj.user and called_pbx_user_obj.user in parent_channel_obj.call.transferred_users:
+                                data['call_source'] = 'transfer'
+                                logger.info(f"NEW CHANNEL: Tagged as 'transfer' (user {called_pbx_user_obj.user.login} is a transfer recipient)")
+                            else:
+                                data['call_source'] = 'ring_group'
+                                logger.info(f"NEW CHANNEL: Tagged as 'ring_group' (user {called_pbx_user_obj.user.login} answered ring group, not a transfer recipient)")
                         else:
                             data['call_source'] = 'ring_group'
                             logger.info(f"NEW CHANNEL: Tagged as 'ring_group' based on call pattern")
