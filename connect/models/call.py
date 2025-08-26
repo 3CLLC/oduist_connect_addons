@@ -310,12 +310,16 @@ class Call(models.Model):
             if 'failed' in channel_statuses:
                 self.status = 'failed'
                 logger.info(f"Call {self.id}: Status set to 'failed' (channel failed)")
+            elif 'no-answer' in channel_statuses:
+                # If any channel shows no-answer, prioritize that (phone rang but wasn't answered)
+                self.status = 'no-answer'
+                logger.info(f"Call {self.id}: Status set to 'no-answer' (at least one channel rang)")
             elif 'busy' in channel_statuses:
                 self.status = 'busy'
-                logger.info(f"Call {self.id}: Status set to 'busy' (channel busy)")
+                logger.info(f"Call {self.id}: Status set to 'busy' (all channels busy)")
             else:
                 self.status = 'no-answer'
-                logger.info(f"Call {self.id}: Status set to 'no-answer' (no one answered)")
+                logger.info(f"Call {self.id}: Status set to 'no-answer' (default - no specific status)")
 
     def _populate_user_fields_direct_call(self):
         """
@@ -1031,11 +1035,9 @@ class Call(models.Model):
             status_changed = channel.call.status != current_status
             users_changed = current_called_users != new_called_users
             
-            if users_changed or not hasattr(channel.call, '_notifications_sent'):
-                logger.info(f"Call {channel.call.id}: Sending notifications - users changed: {users_changed}, first finalization: {not hasattr(channel.call, '_notifications_sent')}")
+            if users_changed or current_status != 'busy':  # Always send notifications unless it's a duplicate busy status
+                logger.info(f"Call {channel.call.id}: Sending notifications - users changed: {users_changed}, first finalization: {current_status != 'busy'}")
                 self.register_call(channel, params)
-                # Mark that notifications have been sent for this user set
-                channel.call._notifications_sent = True
             else:
                 logger.info(f"Call {channel.call.id}: Skipping duplicate notification - no changes in called_users or status")
         else:
