@@ -503,11 +503,18 @@ export class Phone extends Component {
                 self.sipSessions.push(self.id)
                 const params = {id: self.id, action: 'push'}
                 self.bc.postMessage({event: 'tbcSipSession', params})
-            } else {
+            } else if (self.state.phone_status === self.status.accepted) {
+                // User is on an active call - reject the new incoming call
                 let isPartner = false
                 let callerId = {phoneNumber}
                 session.reject()
                 return
+            } else {
+                // User has stuck session but not on active call - clear and accept new call
+                self.session = session
+                self.sipSessions.push(self.id)
+                const params = {id: self.id, action: 'push'}
+                self.bc.postMessage({event: 'tbcSipSession', params})
             }
 
             self.state.callPhoneNumber = phoneNumber
