@@ -619,8 +619,25 @@ class Call(models.Model):
                         current_expected = ring_expectation.get('expected_count', 0)
                         if current_expected > 1:
                             # Reduce expected count since one ring group member is now transferring
-                            ring_expectation['expected_count'] = current_expected - 1
-                            logger.info(f"Call {self.id}: Reduced ring_group expectation from {current_expected} to {current_expected - 1} due to transfer")
+                            new_expected = current_expected - 1
+                            ring_expectation['expected_count'] = new_expected
+                            logger.info(f"Call {self.id}: Reduced ring_group expectation from {current_expected} to {new_expected} due to transfer")
+                            
+                            # IMMEDIATELY RECHECK: See if the reduced expectation is now fulfilled
+                            all_call_sids = list(ring_expectation.get('call_sid_states', {}).keys())
+                            terminal_sids = [sid for sid, state in ring_expectation.get('call_sid_states', {}).items() if state.get('terminal', False)]
+                            
+                            logger.info(f"Call {self.id}: Rechecking ring_group expectation - CallSids seen: {len(all_call_sids)}, terminal: {len(terminal_sids)}, new expected: {new_expected}")
+                            
+                            # If the reduced expectation is now fulfilled, clear it
+                            if len(all_call_sids) >= new_expected and len(terminal_sids) >= new_expected:
+                                logger.info(f"Call {self.id}: ring_group expectation now fulfilled with reduced count - clearing expectation")
+                                del expectations['ring_group']
+                                
+                                # If no more expectations for this call, remove the call entirely
+                                if not expectations:
+                                    logger.info(f"Call {self.id}: All webhook expectations complete after ring_group reduction - removing call from tracking")
+                                    del self.__class__._webhook_expectations[call_key]
                 
                 # Set webhook expectation for transfer channel
                 self._set_webhook_expectation('transfer', {
