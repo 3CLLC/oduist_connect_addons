@@ -381,6 +381,15 @@ class CallForwardHandler(models.TransientModel):
                             logger.info(f'Found call {call.id} via channel lookup for session {session_id}')
                         else:
                             logger.warning(f'No call found for session {session_id}')
+                            
+                            # If parent call was detected, try looking up with target_call_sid (parent)
+                            if parent_call_sid and parent_call_sid != session_id:
+                                parent_channel = self.env['connect.channel'].sudo().search([('sid', '=', parent_call_sid)], limit=1)
+                                if parent_channel and parent_channel.call:
+                                    call = parent_channel.call
+                                    logger.info(f'Found call {call.id} via parent channel lookup for {parent_call_sid}')
+                                else:
+                                    logger.warning(f'No call found for parent {parent_call_sid} either')
                     
                     if call and call.exists():
                         try:
@@ -599,11 +608,6 @@ class CallForwardHandler(models.TransientModel):
             logger.info(f'Caller will ring {user.name} directly at extension {user.exten.number}')
             logger.info(f'If no answer, caller will reach voicemail automatically')
             logger.info(f'Missed call notifications will be sent to {user.name}')
-            
-            # Register the transfer target in the call's transferred_users field
-            if call and user and hasattr(user, 'user'):
-                call.add_transferred_user(user.user)
-                logger.info(f'Added {user.user.login} to transferred_users for call {call.id}')
             
             return True
             
