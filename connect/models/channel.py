@@ -49,6 +49,8 @@ class Channel(models.Model):
         ('transfer', 'Transfer'),
         ('external_dial', 'External Dial')
     ], string='Call Source', help='How this channel was created', tracking=True)
+    # Webhook sequence tracking for duplicate filtering
+    sequence_number = fields.Integer(string='Sequence Number', default=0, help='Twilio webhook sequence number for duplicate filtering')
 
     @api.depends('caller', 'called')
     def _get_channel_numbers(self):
@@ -106,7 +108,22 @@ class Channel(models.Model):
         logger.info(f"Duration: {params.get('CallDuration', 0)}")
         logger.info(f"SequenceNumber: {params.get('SequenceNumber')}")
         logger.info(f"=== END WEBHOOK INFO ===")
-        channel = self.search([('sid', '=', params['CallSid'])])
+        
+        # SEQUENCE-BASED DUPLICATE FILTERING: Check for duplicate webhooks
+        call_sid = params.get('CallSid')
+        sequence_number = int(params.get('SequenceNumber', 0))
+        
+        # Look for existing channels with same CallSid
+        channel = self.search([('sid', '=', call_sid)])
+        if channel:
+            # Check if this webhook has same or lower sequence number
+            if sequence_number <= channel.sequence_number:
+                logger.warning(f"DUPLICATE WEBHOOK FILTERED: CallSid {call_sid} SequenceNumber {sequence_number} <= existing {channel.sequence_number} - ignoring webhook")
+                return
+            else:
+                logger.info(f"VALID SEQUENCE: CallSid {call_sid} SequenceNumber {sequence_number} > existing {channel.sequence_number} - processing webhook")
+        else:
+            logger.info(f"NEW CALLSID: No existing channel found for {call_sid}, sequence_number: {sequence_number}")
         if channel:
             logger.info(f"FOUND EXISTING CHANNEL {channel.id} for SID {params['CallSid']}")
             # Update channel data.
@@ -117,6 +134,7 @@ class Channel(models.Model):
                 'status': params['CallStatus'],
                 'duration': int(params.get('CallDuration', 0)),
                 'caller': params.get('Caller'),
+                'sequence_number': sequence_number,
             }
             # Find an existing parent channel.
             if not channel.parent_channel:
@@ -148,6 +166,7 @@ class Channel(models.Model):
                 'status': params['CallStatus'],
                 'duration': int(params.get('CallDuration', 0)),
                 'caller': params.get('Caller'),
+                'sequence_number': sequence_number,
             }
             # Check if channel has parent_sid without channel
             if channel.parent_sid:
