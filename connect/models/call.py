@@ -786,45 +786,36 @@ class Call(models.Model):
             'terminal': is_terminal
         }
         
-        # If using per-CallSid tracking
-        expected_sids = expectation.get('expected_call_sids', [])
-        if expected_sids:
-            # Check if this CallSid was expected
-            if call_sid in expected_sids:
-                # Count terminal vs expected CallSids
-                terminal_sids = [sid for sid, state in expectation['call_sid_states'].items() 
-                               if state['terminal'] and sid in expected_sids]
-                
-                logger.info(f"Call {self.id}: {source} CallSid tracking - {call_sid} status: {call_status} (terminal: {is_terminal})")
-                logger.info(f"Call {self.id}: {source} terminal CallSids: {len(terminal_sids)}/{len(expected_sids)} - {terminal_sids}")
-                
-                # Clear expectation only when ALL expected CallSids have reached terminal states
-                if len(terminal_sids) >= len(expected_sids):
-                    logger.info(f"Call {self.id}: {source} expectation fulfilled - all expected CallSids reached terminal states")
-                    del expectations[source]
-                    
-                    # If no more expectations for this call, remove the call entirely
-                    if not expectations:
-                        logger.info(f"Call {self.id}: All webhook expectations complete - removing call from tracking")
-                        del self.__class__._webhook_expectations[call_key]
-            else:
-                logger.info(f"Call {self.id}: {source} received unexpected CallSid: {call_sid} (not in expected list)")
+        # Use dynamic CallSid tracking - track all CallSids as they arrive
+        logger.info(f"Call {self.id}: {source} CallSid tracking - {call_sid} status: {call_status} (terminal: {is_terminal})")
+        
+        # Get expected count from original expectation setup
+        expected_count = expectation.get('expected_count', 1)
+        
+        # Count total unique CallSids seen and how many are terminal
+        all_call_sids = list(expectation['call_sid_states'].keys())
+        terminal_sids = [sid for sid, state in expectation['call_sid_states'].items() if state['terminal']]
+        
+        logger.info(f"Call {self.id}: {source} CallSids seen: {len(all_call_sids)}, terminal: {len(terminal_sids)}, expected: {expected_count}")
+        logger.info(f"Call {self.id}: {source} terminal CallSids: {terminal_sids}")
+        
+        # Clear expectation only when we've seen the expected number of CallSids AND all are terminal
+        if len(all_call_sids) >= expected_count and len(terminal_sids) >= expected_count:
+            logger.info(f"Call {self.id}: {source} expectation fulfilled - all expected CallSids reached terminal states")
+            del expectations[source]
+            
+            # If no more expectations for this call, remove the call entirely
+            if not expectations:
+                logger.info(f"Call {self.id}: All webhook expectations complete - removing call from tracking")
+                del self.__class__._webhook_expectations[call_key]
         else:
-            # Old-style expectation without specific CallSids - fall back to counting
-            expectation['received_count'] = expectation.get('received_count', 0) + 1
-            received = expectation['received_count']
-            expected = expectation.get('expected_count', 1)
-            
-            logger.info(f"Call {self.id}: {source} expectation progress: {received}/{expected}")
-            
-            if received >= expected:
-                logger.info(f"Call {self.id}: {source} expectation fulfilled - clearing")
-                del expectations[source]
-                
-                # If no more expectations for this call, remove the call entirely
-                if not expectations:
-                    logger.info(f"Call {self.id}: All webhook expectations complete - removing call from tracking")
-                    del self.__class__._webhook_expectations[call_key]
+            # Determine what we're still waiting for
+            if len(all_call_sids) < expected_count:
+                reason = f"waiting for {expected_count - len(all_call_sids)} more CallSids"
+            else:
+                non_terminal = expected_count - len(terminal_sids)
+                reason = f"waiting for {non_terminal} CallSids to reach terminal state"
+            logger.info(f"Call {self.id}: {source} expectation not yet fulfilled - {reason}")
 
     def _has_pending_webhooks(self):
         """Check if we're still expecting webhook data"""
@@ -952,8 +943,7 @@ class Call(models.Model):
         if channel.called_user:
             # Use call_source to distinguish between original calls and transfers
             if hasattr(channel, 'call_source') and channel.call_source == 'transfer':
-                # Update transfer webhook expectation when transfer channel is created
-                channel.call._update_webhook_expectation_callsid('transfer', channel.sid, channel.status)
+                # Transfer webhook expectation tracking is handled centrally above
                 logger.info(f"Skipped adding {channel.called_user.login} to called_users - call_source indicates this is a transfer recipient")
             else:
                 # This is an originally called user (direct_call, ring_group, or no call_source yet)
@@ -961,9 +951,7 @@ class Call(models.Model):
                 if channel.called_user.id not in channel.call.called_users.ids:
                     channel.call.called_users = [(4, channel.called_user.id)]
                     
-                    # Update webhook expectation if this is a ring group channel
-                    if hasattr(channel, 'call_source') and channel.call_source == 'ring_group':
-                        channel.call._update_webhook_expectation_callsid('ring_group', channel.sid, channel.status)
+                    # Webhook expectation tracking is handled centrally above - no need to duplicate here
                     
                     logger.info(f"Added {channel.called_user.login} to called_users - originally called user (call_source: {getattr(channel, 'call_source', 'None')}) for call {channel.call.id}")
                 else:
