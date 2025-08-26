@@ -967,6 +967,10 @@ class Call(models.Model):
             # Desktop notification only for SIP calls.
             channel.connect_notify()
         
+        # DATABASE LOCKING: Acquire exclusive lock on call record to prevent concurrent modifications
+        # Use SELECT FOR UPDATE to prevent concurrent webhook processing
+        self.env.cr.execute("SELECT id FROM connect_call WHERE id = %s FOR UPDATE", (channel.call.id,))
+        
         # ENSURE USER ADDITION BEFORE EXPECTATION TRACKING: Process users first to prevent race conditions
         # Set called users - only for originally called users, not transfer recipients
         if channel.called_user:
@@ -1014,10 +1018,26 @@ class Call(models.Model):
             params.get('CallStatus') in CALL_END_STATUSES and 
             not has_pending_webhooks and
             is_parent_call_webhook):
-            # NOW do all the final call processing
+            # IDEMPOTENT FINALIZATION: Check if this finalization would change anything
+            current_called_users = set(channel.call.called_users.ids)
+            current_status = channel.call.status
+            
+            # Always run finalization to update user fields, but track if we've notified
             logger.info(f"Call {channel.call.id}: All conditions met for finalization - parent call authority, no pending webhook expectations")
             channel.call._finalize_call_details()
-            self.register_call(channel, params)
+            
+            # Only send notifications if called_users changed or this is the first finalization
+            new_called_users = set(channel.call.called_users.ids)
+            status_changed = channel.call.status != current_status
+            users_changed = current_called_users != new_called_users
+            
+            if users_changed or not hasattr(channel.call, '_notifications_sent'):
+                logger.info(f"Call {channel.call.id}: Sending notifications - users changed: {users_changed}, first finalization: {not hasattr(channel.call, '_notifications_sent')}")
+                self.register_call(channel, params)
+                # Mark that notifications have been sent for this user set
+                channel.call._notifications_sent = True
+            else:
+                logger.info(f"Call {channel.call.id}: Skipping duplicate notification - no changes in called_users or status")
         else:
             if not all_channels_ended:
                 reason = "channels still active"
