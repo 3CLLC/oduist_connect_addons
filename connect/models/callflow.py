@@ -74,9 +74,38 @@ class CallFlow(models.Model):
                 (x.speech and request.get('SpeechResult') and x.speech in
                 request.get('SpeechResult', '')))
         if not choice:
-            logger.warning('Gather choice digits: %s, speech: %s not found in Call Flow %s',
-                request.get('Digits'), request.get('SpeechResult'), callflow.name)
-            return callflow.render(request=request, params={'invalid_input': True})
+            # Check if this is a timeout (no digits received) vs invalid input
+            digits = request.get('Digits')
+            if not digits:
+                # This is a gather timeout - no user input received
+                # Set ring_group pattern for timeout scenario if callflow has ring_users
+                parent_call_sid = request.get('CallSid')
+                if parent_call_sid and callflow.ring_users:
+                    parent_call = self.env['connect.call'].search([
+                        ('channels.sid', '=', parent_call_sid)
+                    ], limit=1)
+                    
+                    if parent_call and not parent_call.call_pattern:
+                        parent_call.call_pattern = 'ring_group'
+                        
+                        # Set webhook expectation for ring group channels (timeout scenario)
+                        expected_count = len(callflow.ring_users)
+                        parent_call._set_webhook_expectation('ring_group', {
+                            'expected_count': expected_count,
+                            'received_count': 0,
+                            'callflow_id': callflow.id,
+                            'source': 'gather_timeout'
+                        })
+                        
+                        logger.info(f"Call {parent_call.id}: Pattern set to 'ring_group' via gather timeout (no user input) - expecting {expected_count} channels")
+                
+                # Render ring_users if available, otherwise fallback  
+                return callflow.render(request=request, params={'gather_timeout': True})
+            else:
+                # This is invalid input (digits received but no matching choice)
+                logger.warning('Gather choice digits: %s, speech: %s not found in Call Flow %s',
+                    request.get('Digits'), request.get('SpeechResult'), callflow.name)
+                return callflow.render(request=request, params={'invalid_input': True})
         
         # EXPLICIT PATTERN TAGGING: Set call pattern based on user choice
         parent_call_sid = request.get('CallSid')
@@ -141,25 +170,8 @@ class CallFlow(models.Model):
             self.get_prompt_message(response)
         # Add ringall users
         if self.ring_users:
-            # EXPLICIT PATTERN TAGGING: Set pattern for timeout scenario (no user input)
-            call_sid = request.get('CallSid')
-            if call_sid:
-                call = self.env['connect.call'].search([
-                    ('channels.sid', '=', call_sid)
-                ], limit=1)
-                if call and not call.call_pattern:
-                    call.call_pattern = 'ring_group'
-                    
-                    # Set webhook expectation for ring group channels (timeout scenario)
-                    expected_count = len(self.ring_users)
-                    call._set_webhook_expectation('ring_group', {
-                        'expected_count': expected_count,
-                        'received_count': 0,
-                        'callflow_id': self.id,
-                        'source': 'render_timeout'
-                    })
-                    
-                    logger.info(f"Call {call.id}: Pattern set to 'ring_group' via render timeout (no user input) - expecting {expected_count} channels")
+            # NOTE: Do NOT set call pattern here during initial render
+            # Pattern should only be set when there's actual user input or genuine timeout from gather action
             
             callerId = request.get('Caller')
             # Hack to enable testing callflow from SIP or Client.

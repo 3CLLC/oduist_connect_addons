@@ -112,16 +112,17 @@ class Channel(models.Model):
         # SEQUENCE-BASED DUPLICATE FILTERING: Check for duplicate webhooks
         call_sid = params.get('CallSid')
         sequence_number = int(params.get('SequenceNumber', 0))
+        call_status = params.get('CallStatus')
         
         # Look for existing channels with same CallSid
         channel = self.search([('sid', '=', call_sid)])
         if channel:
-            # Check if this webhook has same or lower sequence number
-            if sequence_number <= channel.sequence_number:
-                logger.warning(f"DUPLICATE WEBHOOK FILTERED: CallSid {call_sid} SequenceNumber {sequence_number} <= existing {channel.sequence_number} - ignoring webhook")
+            # Allow webhooks with newer sequence numbers OR same sequence with different status (legitimate status updates)
+            if sequence_number < channel.sequence_number or (sequence_number == channel.sequence_number and call_status == channel.status):
+                logger.warning(f"DUPLICATE WEBHOOK FILTERED: CallSid {call_sid} SequenceNumber {sequence_number} (existing: {channel.sequence_number}) CallStatus {call_status} (existing: {channel.status}) - ignoring webhook")
                 return
             else:
-                logger.info(f"VALID SEQUENCE: CallSid {call_sid} SequenceNumber {sequence_number} > existing {channel.sequence_number} - processing webhook")
+                logger.info(f"VALID WEBHOOK: CallSid {call_sid} SequenceNumber {sequence_number} CallStatus {call_status} - processing status update")
         else:
             logger.info(f"NEW CALLSID: No existing channel found for {call_sid}, sequence_number: {sequence_number}")
         if channel:
