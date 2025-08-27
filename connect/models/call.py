@@ -1039,11 +1039,23 @@ class Call(models.Model):
             # Update webhook expectation tracking
             channel.call._update_webhook_expectation_callsid(expectation_source, call_sid, call_status)
             
-        # PARENT CALL AUTHORITY: Only finalize when processing parent call webhook
+        # PARENT CALL AUTHORITY: Different finalization logic for incoming vs outgoing calls
         # Parent calls have no ParentCallSid, child calls have ParentCallSid set
         is_parent_call_webhook = not params.get('ParentCallSid')
         
-        # Register call only when ALL channels have ended AND no pending webhook expectations AND processing parent call
+        # Determine who can trigger finalization based on call direction
+        if channel.call.direction == 'outgoing':
+            # For outgoing calls, only allow finalization from external call leg after parent has completed
+            # This prevents premature finalization during transfers while allowing proper completion
+            parent_completed = (params.get('ParentCallSid') and
+                               any(ch.sid == params.get('ParentCallSid') and ch.status in CALL_END_STATUSES 
+                                   for ch in channel.call.channels))
+            can_trigger_finalization = parent_completed
+        else:
+            # For incoming calls, use standard parent call authority
+            can_trigger_finalization = is_parent_call_webhook
+        
+        # Register call only when ALL channels have ended AND no pending webhook expectations AND can trigger finalization
         # Check if this channel ending means the entire call is complete
         all_channels_ended = all(ch.status in CALL_END_STATUSES for ch in channel.call.channels)
         has_pending_webhooks = channel.call._has_pending_webhooks()
@@ -1051,7 +1063,7 @@ class Call(models.Model):
         if (all_channels_ended and 
             params.get('CallStatus') in CALL_END_STATUSES and 
             not has_pending_webhooks and
-            is_parent_call_webhook):
+            can_trigger_finalization):
             # IDEMPOTENT FINALIZATION: Check if this finalization would change anything
             current_called_users = set(channel.call.called_users.ids)
             current_status = channel.call.status
@@ -1075,8 +1087,11 @@ class Call(models.Model):
                 reason = "channels still active"
             elif has_pending_webhooks:
                 reason = "pending webhook expectations"
-            elif not is_parent_call_webhook:
-                reason = "child call webhook (parent call authority)"
+            elif not can_trigger_finalization:
+                if channel.call.direction == 'outgoing':
+                    reason = "external call leg webhook (outgoing call authority)"
+                else:
+                    reason = "child call webhook (parent call authority)"
             else:
                 reason = "channel not ending"
             logger.info(f"Call {channel.call.id}: Finalization deferred - {reason}")
