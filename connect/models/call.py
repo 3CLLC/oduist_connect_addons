@@ -1045,12 +1045,17 @@ class Call(models.Model):
         
         # Determine who can trigger finalization based on call direction
         if channel.call.direction == 'outgoing':
-            # For outgoing calls, only allow finalization from external call leg after parent has completed
-            # This prevents premature finalization during transfers while allowing proper completion
-            parent_completed = (params.get('ParentCallSid') and
-                               any(ch.sid == params.get('ParentCallSid') and ch.status in CALL_END_STATUSES 
-                                   for ch in channel.call.channels))
-            can_trigger_finalization = parent_completed
+            # For outgoing calls, allow finalization when:
+            # 1. All channels are complete (checked later), OR
+            # 2. From external call leg after parent completes (for transfer scenarios)
+            if params.get('ParentCallSid'):
+                # This is an external call leg - check if parent is complete
+                parent_completed = any(ch.sid == params.get('ParentCallSid') and ch.status in CALL_END_STATUSES 
+                                     for ch in channel.call.channels)
+                can_trigger_finalization = parent_completed
+            else:
+                # This is the parent call - can trigger finalization
+                can_trigger_finalization = True
         else:
             # For incoming calls, use standard parent call authority
             can_trigger_finalization = is_parent_call_webhook
