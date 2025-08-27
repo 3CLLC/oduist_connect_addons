@@ -68,6 +68,7 @@ class CallFlow(models.Model):
 
     @api.model
     def gather_action(self, flow_id, request):
+        logger.info(f"GATHER_ACTION: Called for callflow {flow_id} - Digits: '{request.get('Digits')}', SpeechResult: '{request.get('SpeechResult')}'")
         callflow = self.browse(flow_id)
         choice = callflow.choices.filtered(
             lambda x: x.choice_digits == request.get('Digits') or
@@ -166,8 +167,10 @@ class CallFlow(models.Model):
             )
             self.get_prompt_message(gather)
             response.append(gather)
+            logger.info(f"CALLFLOW RENDER: Created gather element - action={self.gather_action_url}, timeout={self.gather_timeout}")
         elif self.prompt_message:
             self.get_prompt_message(response)
+            logger.info(f"CALLFLOW RENDER: Created prompt without gather (gather_input={self.gather_input})")
         # Add ringall users
         if self.ring_users:
             # NOTE: Do NOT set call pattern here during initial render

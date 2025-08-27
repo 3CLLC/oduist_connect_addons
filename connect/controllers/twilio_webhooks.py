@@ -59,6 +59,7 @@ class ConnectController(Controller):
 
     @route('/twilio/webhook/callflow/<int:flow_id>/gather', methods=['POST'], type='http', auth='public', csrf=False)
     def gather_webhook(self, flow_id, **kw):
+        _logger.info(f"GATHER_WEBHOOK: Received webhook for callflow {flow_id} - params: {kw}")
         if not self.check_signature(kw):
             return '<Response><Say>Invalid Twilio request!</Say></Response>'
         callflow = request.env['connect.callflow'].with_user(request.env.ref("connect.user_connect_webhook"))
