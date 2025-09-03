@@ -163,7 +163,8 @@ class CallFlow(models.Model):
                 timeout=self.gather_timeout,
                 numDigits=str(self.gather_digits),
                 input=self.gather_input_type,
-                language=self.language
+                language=self.language,
+                actionOnEmptyResult=True
             )
             self.get_prompt_message(gather)
             response.append(gather)
