@@ -21,6 +21,24 @@
               name="Calls"
               action="connect.call_action"/>
 
+    <record id="voicemail_action" model="ir.actions.act_window">
+        <field name="name">Voicemails</field>
+        <field name="res_model">connect.call</field>
+        <field name="view_mode">list,form</field>
+        <field name="domain">[('voicemail_url', '!=', False)]</field>
+        <field name="context">{'search_default_current_user': 1}</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+                                      (0, 0, {'view_mode': 'list', 'view_id': ref('connect_voicemail_list')}),
+                                      (0, 0, {'view_mode': 'form', 'view_id': ref('connect_call_form')})]"/>
+        <field name="search_view_id" ref="connect_voicemail_search"/>
+    </record>
+
+    <menuitem id="connect.voicemails_menu"
+              sequence="90"
+              parent="connect.connect_voice_menu"
+              name="Voicemails"
+              action="connect.voicemail_action"/>
+
     <record id="connect.connect_call_list" model="ir.ui.view">
         <field name="name">connect.connect_call_list</field>
         <field name="model">connect.call</field>
@@ -48,6 +66,49 @@
                 <field name="recording_icon" widget="html" optional="show"/>
                 <field name="voicemail_icon" optional="show"/>
             </list>
+        </field>
+    </record>
+
+    <record id="connect_voicemail_list" model="ir.ui.view">
+        <field name="name">connect.voicemail_list</field>
+        <field name="model">connect.call</field>
+        <field name="arch" type="xml">
+            <list edit="false" create="false">
+                <field name="create_date"/>
+                <field name="caller"/>
+                <field name="partner"/>
+                <field name="called_users" widget="many2many_tags"/>
+                <field name="answered_user"/>
+                <field name="duration_human" string="Duration"/>
+                <field name="direction"/>
+                <field name="status"/>
+                <field name="voicemail_widget" widget="html" string="Voicemail"/>
+            </list>
+        </field>
+    </record>
+
+    <record id="connect_voicemail_search" model="ir.ui.view">
+        <field name="name">connect.voicemail_search</field>
+        <field name="model">connect.call</field>
+        <field name="arch" type="xml">
+            <search>
+                <field name="caller"/>
+                <field name="partner"/>
+                <field name="answered_user"/>
+                <field name="called_users"/>
+                <separator/>
+                <filter name="current_user" string="My Voicemails" 
+                        domain="[('answered_user', '=', uid)]"/>
+                <filter name="incoming" string="Incoming" 
+                        domain="[('direction', '=', 'incoming')]"/>
+                <filter name="today" string="Today" 
+                        domain="[('create_date', '>=', datetime.datetime.now().replace(hour=0,minute=0,second=0))]"/>
+                <group expand="0" string="Group By">
+                    <filter name="by_partner" string="Partner" context="{'group_by': 'partner'}"/>
+                    <filter name="by_answered_user" string="Answered By" context="{'group_by': 'answered_user'}"/>
+                    <filter name="by_date" string="Date" context="{'group_by': 'create_date:day'}"/>
+                </group>
+            </search>
         </field>
     </record>
 
