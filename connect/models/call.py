@@ -38,7 +38,6 @@ class Call(models.Model):
     recordings_count = fields.Integer(compute='_get_call_recordings_data', string='# Recordings', store=True)
     recordings_total_duration = fields.Integer(compute='_get_call_recordings_data', string='Total Recording Duration')
     recordings_total_duration_human = fields.Char(compute='_get_call_recordings_data', string='Recording Duration')
-    recordings_coverage_percent = fields.Float(compute='_get_call_recordings_data', string='Coverage %', store=True)
     recordings_widget = fields.Html(compute='_get_call_recordings_data', string='All Recordings', sanitize=False)
     recordings_participants = fields.Char(compute='_get_call_recordings_data', string='Recorded Participants')
     
@@ -195,11 +194,6 @@ class Call(models.Model):
                 else:
                     rec.recordings_total_duration_human = '00:00'
                 
-                # Coverage percentage
-                if rec.duration and total_duration:
-                    rec.recordings_coverage_percent = round((total_duration / rec.duration) * 100, 1)
-                else:
-                    rec.recordings_coverage_percent = 0.0
                 
                 # Participants
                 participants = []
@@ -237,7 +231,6 @@ class Call(models.Model):
                 rec.recordings_count = 0
                 rec.recordings_total_duration = 0
                 rec.recordings_total_duration_human = '00:00'
-                rec.recordings_coverage_percent = 0.0
                 rec.recordings_participants = ''
                 rec.recordings_widget = ''
 

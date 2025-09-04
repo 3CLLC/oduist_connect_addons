@@ -16,7 +16,6 @@
                 <field name="duration_human" string="Call Duration"/>
                 <field name="recordings_count" string="# Recordings"/>
                 <field name="recordings_total_duration_human" string="Recording Duration"/>
-                <field name="recordings_coverage_percent" string="Coverage %" widget="percentage"/>
                 <field name="recordings_count" invisible="1"/>
             </list>
         </field>
@@ -43,7 +42,6 @@
                             <field name="duration_human" string="Call Duration"/>
                             <field name="recordings_count"/>
                             <field name="recordings_total_duration_human"/>
-                            <field name="recordings_coverage_percent" widget="percentage"/>
                             <field name="recordings_participants"/>
                         </group>
                     </group>
@@ -76,8 +74,6 @@
                         domain="[('recordings_count', '&gt;', 0)]"/>
                 <filter name="no_recordings" string="No Recordings" 
                         domain="[('recordings_count', '=', 0)]"/>
-                <filter name="low_coverage" string="Low Coverage (&lt; 90%)" 
-                        domain="[('recordings_coverage_percent', '&lt;', 90), ('recordings_count', '&gt;', 0)]"/>
                 <filter name="incoming" string="Incoming" 
                         domain="[('direction', '=', 'incoming')]"/>
                 <filter name="today" string="Today" 
