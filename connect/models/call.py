@@ -195,12 +195,24 @@ class Call(models.Model):
                     rec.recordings_total_duration_human = '00:00'
                 
                 
-                # Participants
+                # Participants - get all users involved in the call who could have recordings
                 participants = []
-                for recording in call_recordings:
-                    if recording.called_user:
-                        participants.append(recording.called_user.name)
-                rec.recordings_participants = ', '.join(set(participants)) if participants else 'Unknown'
+                
+                # Add originally called users
+                if rec.called_users:
+                    participants.extend([user.name for user in rec.called_users])
+                
+                # Add transferred users (they would have their own recordings)
+                if rec.transferred_users:
+                    participants.extend([user.name for user in rec.transferred_users])
+                
+                # Add answered user if not already included
+                if rec.answered_user and rec.answered_user.name not in participants:
+                    participants.append(rec.answered_user.name)
+                
+                # Remove duplicates and join
+                unique_participants = list(set(participants))
+                rec.recordings_participants = ', '.join(unique_participants) if unique_participants else 'External Only'
                 
                 # Build recordings widget with all recordings
                 recordings_html = []
