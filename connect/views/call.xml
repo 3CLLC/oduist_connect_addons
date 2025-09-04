@@ -81,11 +81,11 @@
                 <separator/>
                 <filter name="current_user" string="My Voicemails" 
                         domain="['|',
-                                  '&', ('called_users', 'in', uid),
-                                       '&', ('answered_user', '=', False),
-                                       '&', ('transferred_users', '=', False), 
+                                  '&amp;', ('called_users', 'in', uid),
+                                       '&amp;', ('answered_user', '=', False),
+                                       '&amp;', ('transferred_users', '=', False), 
                                        ('completed_by_user', '=', False),
-                                  '&', ('transferred_users', 'in', uid),
+                                  '&amp;', ('transferred_users', 'in', uid),
                                        ('completed_by_user', '=', False)]"/>
                 <filter name="incoming" string="Incoming" 
                         domain="[('direction', '=', 'incoming')]"/>

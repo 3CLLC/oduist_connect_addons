@@ -88,11 +88,11 @@
                 <field name="called_users"/>
                 <separator/>
                 <filter name="with_recordings" string="Has Recordings" 
-                        domain="[('recordings_count', '>', 0)]"/>
+                        domain="[('recordings_count', '&gt;', 0)]"/>
                 <filter name="no_recordings" string="No Recordings" 
                         domain="[('recordings_count', '=', 0)]"/>
                 <filter name="low_coverage" string="Low Coverage (&lt; 90%)" 
-                        domain="[('recordings_coverage_percent', '&lt;', 90), ('recordings_count', '>', 0)]"/>
+                        domain="[('recordings_coverage_percent', '&lt;', 90), ('recordings_count', '&gt;', 0)]"/>
                 <filter name="incoming" string="Incoming" 
                         domain="[('direction', '=', 'incoming')]"/>
                 <filter name="today" string="Today" 
