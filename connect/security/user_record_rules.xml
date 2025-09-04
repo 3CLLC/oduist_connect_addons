@@ -53,7 +53,7 @@
         <field name="name">connect_recording_user</field>
         <field name="model_id" ref="connect.model_connect_recording"/>
         <field name="groups" eval="[(6, 0, [ref('group_connect_user')])]"/>
-        <field name="domain_force">['|', ('caller_user', '=', user.id), ('called_user', '=', user.id)]</field>
+        <field name="domain_force">['|', '|', '|', '|', ('caller_user', '=', user.id), ('called_user', '=', user.id), ('call.caller_user', '=', user.id), ('call.called_users', '=', user.id), ('call.transferred_users', '=', user.id)]</field>
         <field name="perm_read" eval="1"/>
         <field name="perm_write" eval="1"/>
         <field name="perm_create" eval="1"/>
