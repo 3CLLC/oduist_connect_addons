@@ -153,10 +153,11 @@ class CallFlow(models.Model):
         action_url = urljoin(api_url, 'twilio/webhook/connect.callflow/call_action/{}'.format(self.id))
         record_status_url = urljoin(api_url, 'twilio/webhook/recordingstatus')
         invalid_input = params.get('invalid_input')
+        gather_timeout = params.get('gather_timeout')
         response = VoiceResponse()
         if invalid_input:
             self.get_gather_invalid_input_message(response)
-        if self.prompt_message and self.gather_input:
+        if self.prompt_message and self.gather_input and not gather_timeout:
             gather = Gather(
                 action=self.gather_action_url,
                 method='POST',
