@@ -9,7 +9,8 @@
 
     <menuitem id="connect.callflows_menu"
             sequence="175"
-            parent="connect.connect_voice_menu"
+            parent="connect.connect_settings_voice_menu"
+            groups="connect.group_connect_admin"
             name="Call Flows"
             action="connect.callflow_action"/>
 

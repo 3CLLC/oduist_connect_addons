@@ -19,6 +19,11 @@
   <menuitem id="connect_settings_menu" name="Settings"
         sequence="400" parent="connect_top_menu"/>
 
+  <menuitem id="connect_settings_voice_menu" name="Voice"
+        parent="connect_settings_menu" 
+        groups="connect.group_connect_admin"
+        sequence="80"/>
+
   <menuitem id="connect_debug_menu" name="Debug"
       groups="base.group_no_one"
       sequence="500" parent="connect_top_menu"/>

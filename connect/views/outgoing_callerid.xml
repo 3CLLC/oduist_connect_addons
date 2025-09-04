@@ -9,8 +9,9 @@
 
     <menuitem id="connect.outgoing_callerids_menu"
             sequence="600"
-            parent="connect.connect_voice_menu"
-            name="Outgoing CallerIds"
+            parent="connect.connect_settings_voice_menu"
+            groups="connect.group_connect_admin"
+            name="Outgoing Caller IDs"
             action="connect.outgoing_callerid_action"/>
 
     <record id="connect.outgoing_callerid_list" model="ir.ui.view">

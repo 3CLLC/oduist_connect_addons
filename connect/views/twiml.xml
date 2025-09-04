@@ -9,7 +9,8 @@
 
     <menuitem id="connect.twimls_menu"
             sequence="200"
-            parent="connect.connect_voice_menu"
+            parent="connect.connect_settings_voice_menu"
+            groups="connect.group_connect_admin"
             name="TwiML"
             action="connect.twiml_action"/>
 

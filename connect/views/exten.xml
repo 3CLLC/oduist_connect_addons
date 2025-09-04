@@ -10,7 +10,8 @@
 
     <menuitem id="connect.extens_menu"
             sequence="85"
-            parent="connect.connect_voice_menu"
+            parent="connect.connect_settings_voice_menu"
+            groups="connect.group_connect_admin"
             name="Extensions"
             action="connect.exten_action"/>
 
