@@ -170,7 +170,7 @@ class CallFlow(models.Model):
             self.get_prompt_message(gather)
             response.append(gather)
             logger.info(f"CALLFLOW RENDER: Created gather element - action={self.gather_action_url}, timeout={self.gather_timeout}")
-        elif self.prompt_message:
+        elif self.prompt_message and not gather_timeout:
             self.get_prompt_message(response)
             logger.info(f"CALLFLOW RENDER: Created prompt without gather (gather_input={self.gather_input})")
         # Add ringall users
