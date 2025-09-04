@@ -101,6 +101,7 @@
                                       (0, 0, {'view_mode': 'list', 'view_id': ref('connect_call_recordings_list')}),
                                       (0, 0, {'view_mode': 'form', 'view_id': ref('connect_call_recordings_form')})]"/>
         <field name="search_view_id" ref="connect_call_recordings_search"/>
+        <field name="context">{'recordings_view': True}</field>
     </record>
 
     <menuitem id="connect.recordings_menu"
