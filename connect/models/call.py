@@ -33,6 +33,15 @@ class Call(models.Model):
     else:
         recording_widget = fields.Char(compute='_get_recording_data')
     recording_icon = fields.Html(compute='_get_recording_data', string='R')
+    
+    # Call-aggregated recording fields
+    recordings_count = fields.Integer(compute='_get_call_recordings_data', string='# Recordings')
+    recordings_total_duration = fields.Integer(compute='_get_call_recordings_data', string='Total Recording Duration')
+    recordings_total_duration_human = fields.Char(compute='_get_call_recordings_data', string='Recording Duration')
+    recordings_coverage_percent = fields.Float(compute='_get_call_recordings_data', string='Coverage %')
+    recordings_widget = fields.Html(compute='_get_call_recordings_data', string='All Recordings', sanitize=False)
+    recordings_participants = fields.Char(compute='_get_call_recordings_data', string='Recorded Participants')
+    
     summary = fields.Html()
     called = fields.Char(readonly=True)
     caller = fields.Char(readonly=True)
@@ -160,6 +169,76 @@ class Call(models.Model):
                 rec.transcript = ''
                 rec.recording = False
                 rec.recording_widget = ''
+
+    def _get_call_recordings_data(self):
+        """Compute call-aggregated recording data for the recordings view"""
+        proxy_recordings = self.env['connect.settings'].sudo().get_param('proxy_recordings')
+        
+        # Get all recordings for these calls
+        recordings = self.env['connect.recording'].search([('call', 'in', self.ids)])
+        
+        for rec in self:
+            call_recordings = recordings.filtered(lambda x: x.call.id == rec.id)
+            
+            if call_recordings:
+                # Count and duration calculations
+                rec.recordings_count = len(call_recordings)
+                total_duration = sum(r.duration or 0 for r in call_recordings)
+                rec.recordings_total_duration = total_duration
+                
+                # Human readable duration
+                if total_duration:
+                    minutes = total_duration // 60
+                    seconds = total_duration % 60
+                    rec.recordings_total_duration_human = '{:02}:{:02}'.format(minutes, seconds)
+                else:
+                    rec.recordings_total_duration_human = '00:00'
+                
+                # Coverage percentage
+                if rec.duration and total_duration:
+                    rec.recordings_coverage_percent = round((total_duration / rec.duration) * 100, 1)
+                else:
+                    rec.recordings_coverage_percent = 0.0
+                
+                # Participants
+                participants = []
+                for recording in call_recordings:
+                    if recording.called_user:
+                        participants.append(recording.called_user.name)
+                rec.recordings_participants = ', '.join(set(participants)) if participants else 'Unknown'
+                
+                # Build recordings widget with all recordings
+                recordings_html = []
+                for i, recording in enumerate(call_recordings.sorted('start_time'), 1):
+                    if recording.media_url:
+                        if proxy_recordings:
+                            media_url = '/connect/recording/{}'.format(recording.id)
+                        else:
+                            media_url = recording.media_url
+                        
+                        # Label for each recording
+                        label = 'Recording {}'.format(i)
+                        if recording.called_user:
+                            label += ' - {}'.format(recording.called_user.name)
+                        
+                        recordings_html.append(
+                            '<div style="margin-bottom: 10px;">'
+                            '<strong>{}:</strong><br/>'
+                            '<audio controls preload="none" style="width: 100%; max-width: 400px;">'
+                            '<source src="{}"/>'
+                            '</audio>'
+                            '</div>'.format(label, media_url)
+                        )
+                
+                rec.recordings_widget = ''.join(recordings_html)
+            else:
+                # No recordings
+                rec.recordings_count = 0
+                rec.recordings_total_duration = 0
+                rec.recordings_total_duration_human = '00:00'
+                rec.recordings_coverage_percent = 0.0
+                rec.recordings_participants = ''
+                rec.recordings_widget = ''
 
     def _get_voicemail_widget(self):
         proxy_recordings = self.env['connect.settings'].sudo().get_param('proxy_recordings')

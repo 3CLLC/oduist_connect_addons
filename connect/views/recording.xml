@@ -2,9 +2,13 @@
 <odoo>
 
     <record id="recording_action" model="ir.actions.act_window">
-        <field name="name">Recording</field>
-        <field name="res_model">connect.recording</field>
+        <field name="name">Call Recordings</field>
+        <field name="res_model">connect.call</field>
         <field name="view_mode">list,form</field>
+        <field name="view_ids" eval="[(5, 0, 0),
+                                      (0, 0, {'view_mode': 'list', 'view_id': ref('connect_call_recordings_list')}),
+                                      (0, 0, {'view_mode': 'form', 'view_id': ref('connect_call_recordings_form')})]"/>
+        <field name="search_view_id" ref="connect_call_recordings_search"/>
     </record>
 
     <menuitem id="connect.recordings_menu"
@@ -13,95 +17,93 @@
             name="Recordings"
             action="connect.recording_action"/>
 
-    <record id="connect.recording_list" model="ir.ui.view">
-        <field name="name">connect.recording_list</field>
-        <field name="model">connect.recording</field>
+    <record id="connect_call_recordings_list" model="ir.ui.view">
+        <field name="name">connect.call_recordings_list</field>
+        <field name="model">connect.call</field>
         <field name="arch" type="xml">
-            <list edit="false" create="false">
-                <field name="start_time"/>
-                <field name="list_view_summary" widget="html" optional="hide" string="Summary"/>
-                <field name="caller_number" optional="hide"/>
-                <field name="caller_user"/>
-                <field name="called_number" optional="hide"/>
-                <field name="called_user"/>
+            <list edit="false" create="false" decoration-warning="recordings_count == 0">
+                <field name="create_date"/>
+                <field name="caller"/>
                 <field name="partner"/>
-                <field name="duration_human" string="Duration" optional="show"/>
-                <field name="duration" sum="1" optional="hide" string="Duration, sec"/>
-                <field name="status" optional="hide"/>
-                <field name="price" optional="hide" sum="1"/>
-                <field name="price_unit" optional="hide"/>
+                <field name="recordings_participants"/>
+                <field name="direction"/>
+                <field name="status"/>
+                <field name="duration_human" string="Call Duration"/>
+                <field name="recordings_count" string="# Recordings"/>
+                <field name="recordings_total_duration_human" string="Recording Duration"/>
+                <field name="recordings_coverage_percent" string="Coverage %" widget="percentage"/>
+                <field name="recordings_count" invisible="1"/>
             </list>
         </field>
     </record>
 
-    <record id="connect_recording_form" model="ir.ui.view" >
-        <field name="name">connect_recording_form</field>
-        <field name="model">connect.recording</field>
+    <record id="connect_call_recordings_form" model="ir.ui.view" >
+        <field name="name">connect.call_recordings_form</field>
+        <field name="model">connect.call</field>
         <field name="arch" type="xml">
             <form edit="false" create="false">
-                <header>
-                    <button name="get_transcript" type="object" string="Transcribe"/>
-                    <button name="sync" type="object" string="Sync"/>
-                </header>
                 <sheet>
                 <notebook>
-                    <page string="Info">
+                    <page string="Call Info">
                     <group>
                         <group>
-                            <field name="summary" widget="html"
-                                invisible="not summary"/>
-                            <field name="recording_widget" widget="html"
-                                invisible="not recording_widget"/>
-                            <field name="start_time"/>
-                            <field name="caller_number"/>
-                            <field name="called_number"/>
+                            <field name="create_date"/>
+                            <field name="caller"/>
+                            <field name="called"/>
+                            <field name="partner"/>
+                            <field name="direction"/>
                             <field name="status"/>
                         </group>
                         <group>
-                            <field name="partner"/>
-                            <field name="called_user"/>
-                            <field name="caller_user"/>
-                            <field name="call"/>
-                            <field name="channel"/>
-                            <field name="price"/>
-                            <field name="price_unit"/>
+                            <field name="duration_human" string="Call Duration"/>
+                            <field name="recordings_count"/>
+                            <field name="recordings_total_duration_human"/>
+                            <field name="recordings_coverage_percent" widget="percentage"/>
+                            <field name="recordings_participants"/>
                         </group>
                     </group>
                     </page>
+                    <page name="recordings" string="Recordings"
+                            invisible="recordings_count == 0">
+                        <field name="recordings_widget" widget="html" nolabel="1"/>
+                    </page>
                     <page name="transcript" string="Transcript"
                             invisible="not transcript">
-                        <group>
-                            <group>
-                                <field name="transcription_error"
-                                       invisible="transcription_error == False"/>
-                                <field name="transcription_price"/>
-                            </group>
-                        </group>
-                        <group>
-                            <field name="transcript"/>
-                        </group>
+                        <field name="transcript"/>
                     </page>
                 </notebook>
                 </sheet>
-                <chatter/>
             </form>
         </field>
     </record>
 
-    <record id="connect_recording_search" model="ir.ui.view" >
-        <field name="name">connect_recording_search</field>
-        <field name="model">connect.recording</field>
+    <record id="connect_call_recordings_search" model="ir.ui.view" >
+        <field name="name">connect.call_recordings_search</field>
+        <field name="model">connect.call</field>
         <field name="arch" type="xml">
             <search>
+                <field name="caller"/>
                 <field name="partner"/>
                 <field name="caller_user"/>
-                <field name="called_user"/>
-                <field name="caller_number"/>
-                <field name="called_number"/>
-                <filter name="partners" string="Partners" domain="[('partner','!=', False)]"/>
-                <filter name="by_partner" string="Partner" context="{'group_by': 'partner'}"/>
-                <filter name="by_caller" string="Caller User" context="{'group_by': 'caller_user'}"/>
-                <filter name="by_called" string="Called User" context="{'group_by': 'called_user'}"/>
+                <field name="called_users"/>
+                <separator/>
+                <filter name="with_recordings" string="Has Recordings" 
+                        domain="[('recordings_count', '>', 0)]"/>
+                <filter name="no_recordings" string="No Recordings" 
+                        domain="[('recordings_count', '=', 0)]"/>
+                <filter name="low_coverage" string="Low Coverage (&lt; 90%)" 
+                        domain="[('recordings_coverage_percent', '&lt;', 90), ('recordings_count', '>', 0)]"/>
+                <filter name="incoming" string="Incoming" 
+                        domain="[('direction', '=', 'incoming')]"/>
+                <filter name="today" string="Today" 
+                        domain="[('create_date', '&gt;=', datetime.datetime.now().replace(hour=0,minute=0,second=0))]"/>
+                <group expand="0" string="Group By">
+                    <filter name="by_partner" string="Partner" context="{'group_by': 'partner'}"/>
+                    <filter name="by_caller_user" string="Caller User" context="{'group_by': 'caller_user'}"/>
+                    <filter name="by_direction" string="Direction" context="{'group_by': 'direction'}"/>
+                    <filter name="by_status" string="Status" context="{'group_by': 'status'}"/>
+                    <filter name="by_date" string="Date" context="{'group_by': 'create_date:day'}"/>
+                </group>
             </search>
         </field>
     </record>
