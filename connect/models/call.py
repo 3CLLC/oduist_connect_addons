@@ -35,10 +35,10 @@ class Call(models.Model):
     recording_icon = fields.Html(compute='_get_recording_data', string='R')
     
     # Call-aggregated recording fields
-    recordings_count = fields.Integer(compute='_get_call_recordings_data', string='# Recordings')
+    recordings_count = fields.Integer(compute='_get_call_recordings_data', string='# Recordings', store=True)
     recordings_total_duration = fields.Integer(compute='_get_call_recordings_data', string='Total Recording Duration')
     recordings_total_duration_human = fields.Char(compute='_get_call_recordings_data', string='Recording Duration')
-    recordings_coverage_percent = fields.Float(compute='_get_call_recordings_data', string='Coverage %')
+    recordings_coverage_percent = fields.Float(compute='_get_call_recordings_data', string='Coverage %', store=True)
     recordings_widget = fields.Html(compute='_get_call_recordings_data', string='All Recordings', sanitize=False)
     recordings_participants = fields.Char(compute='_get_call_recordings_data', string='Recorded Participants')
     
@@ -170,6 +170,7 @@ class Call(models.Model):
                 rec.recording = False
                 rec.recording_widget = ''
 
+    @api.depends('duration')  # Trigger recompute when call data changes
     def _get_call_recordings_data(self):
         """Compute call-aggregated recording data for the recordings view"""
         proxy_recordings = self.env['connect.settings'].sudo().get_param('proxy_recordings')
