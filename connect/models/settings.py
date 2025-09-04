@@ -88,6 +88,7 @@ class Settings(models.Model):
 
     name = fields.Char(compute="_get_name")
     debug_mode = fields.Boolean()
+    messaging_enabled = fields.Boolean(string="Enable Messaging", default=False, help="Show/hide the Messaging menu")
     account_sid = fields.Char(string="Account SID")
     auth_token = fields.Char(
         groups="base.group_erp_manager,connect.group_connect_webhook"
@@ -520,6 +521,11 @@ class Settings(models.Model):
         if not self.openai_api_key and vals.get("display_openai_api_key"):
             vals.update({"transcript_calls": True})
         res = super(Settings, self).write(vals)
+        
+        # Update messaging group membership when messaging_enabled changes
+        if 'messaging_enabled' in vals:
+            self._update_messaging_group()
+            
         changed_fields = {}
         for field_name in PROTECTED_FIELDS:
             if vals.get(field_name):
@@ -704,3 +710,19 @@ class Settings(models.Model):
             "target": "current",
             "context": {"search_default_key": "connect.api_url"},
         }
+
+    def _update_messaging_group(self):
+        """Update messaging group membership based on messaging_enabled setting"""
+        messaging_group = self.env.ref('connect.group_connect_messaging')
+        
+        if self.messaging_enabled:
+            # Add all Connect users to messaging group
+            connect_users = self.env['res.users'].search([
+                '|',
+                ('groups_id', '=', self.env.ref('connect.group_connect_user').id),
+                ('groups_id', '=', self.env.ref('connect.group_connect_admin').id)
+            ])
+            messaging_group.write({'users': [(4, user.id) for user in connect_users]})
+        else:
+            # Remove all users from messaging group
+            messaging_group.write({'users': [(5, 0, 0)]})

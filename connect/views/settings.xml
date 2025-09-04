@@ -29,6 +29,7 @@
                       <button name="action_open_system_parameters" type="object" string="Change Odoo URL"/>
                       <field name="api_fallback_url" string="Fallback URL"/>
                       <field name="debug_mode"/>
+                      <field name="messaging_enabled"/>
                     </group>
                   </group>
                 </page>

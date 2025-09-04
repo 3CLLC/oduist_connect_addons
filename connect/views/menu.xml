@@ -8,7 +8,8 @@
         parent="connect_top_menu" sequence="100"/>
 
   <menuitem id="connect_messaging_menu" name="Messaging"
-        parent="connect_top_menu" sequence="150"/>
+        parent="connect_top_menu" sequence="150"
+        groups="connect.group_connect_messaging"/>
 
   <menuitem id="connect_ai_menu" name="AI"
         parent="connect_top_menu" sequence="200"/>
