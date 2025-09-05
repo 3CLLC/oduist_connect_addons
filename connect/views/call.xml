@@ -100,6 +100,8 @@
                 <group expand="0" string="Group By">
                     <filter name="by_partner" string="Partner" context="{'group_by': 'partner'}"/>
                     <filter name="by_answered_user" string="Answered By" context="{'group_by': 'answered_user'}"/>
+                    <filter name="by_caller_number" string="Caller Number" context="{'group_by': 'caller'}"/>
+                    <filter name="by_called_number" string="Called Number" context="{'group_by': 'called'}"/>
                     <filter name="by_date" string="Date" context="{'group_by': 'create_date:day'}"/>
                 </group>
             </search>
