@@ -70,6 +70,8 @@
                 <field name="caller_user"/>
                 <field name="called_users"/>
                 <separator/>
+                <filter name="my_recordings" string="My Recordings" 
+                        domain="['|', '|', '|', ('caller_user', '=', uid), ('called_users', 'in', uid), ('answered_user', '=', uid), ('transferred_users', 'in', uid)]"/>
                 <filter name="with_recordings" string="Has Recordings" 
                         domain="[('recordings_count', '&gt;', 0)]"/>
                 <filter name="no_recordings" string="No Recordings" 
@@ -81,6 +83,8 @@
                 <group expand="0" string="Group By">
                     <filter name="by_partner" string="Partner" context="{'group_by': 'partner'}"/>
                     <filter name="by_caller_user" string="Caller User" context="{'group_by': 'caller_user'}"/>
+                    <filter name="by_caller_number" string="Caller Number" context="{'group_by': 'caller'}"/>
+                    <filter name="by_called_number" string="Called Number" context="{'group_by': 'called'}"/>
                     <filter name="by_direction" string="Direction" context="{'group_by': 'direction'}"/>
                     <filter name="by_status" string="Status" context="{'group_by': 'status'}"/>
                     <filter name="by_date" string="Date" context="{'group_by': 'create_date:day'}"/>
@@ -97,7 +101,7 @@
                                       (0, 0, {'view_mode': 'list', 'view_id': ref('connect_call_recordings_list')}),
                                       (0, 0, {'view_mode': 'form', 'view_id': ref('connect_call_recordings_form')})]"/>
         <field name="search_view_id" ref="connect_call_recordings_search"/>
-        <field name="context">{'recordings_view': True}</field>
+        <field name="context">{'recordings_view': True, 'search_default_my_recordings': 1}</field>
     </record>
 
     <menuitem id="connect.recordings_menu"
