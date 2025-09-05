@@ -17,7 +17,6 @@
                 <field name="duration_human" string="Call Duration"/>
                 <field name="recordings_count" string="# Recordings"/>
                 <field name="recordings_total_duration_human" string="Recording Duration"/>
-                <field name="recordings_count" invisible="1"/>
             </list>
         </field>
     </record>
