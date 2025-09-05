@@ -8,6 +8,7 @@
         <field name="view_ids" eval="[(5, 0, 0),
                                       (0, 0, {'view_mode': 'list', 'view_id': ref('connect.connect_call_list')}),
                                       (0, 0, {'view_mode': 'form', 'view_id': ref('connect_call_form')})]"/>
+        <field name="search_view_id" ref="connect_call_search"/>
         <field name="context">{'search_default_my_calls': 1}</field>
     </record>
 
