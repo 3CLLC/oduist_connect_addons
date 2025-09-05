@@ -25,6 +25,7 @@
     </record>
 
     <!-- Call -->
+    <!-- COMMENTED OUT: Restrictive visibility - now using default search filters instead
     <record id="connect_call_user_rule" model="ir.rule">
         <field name="name">connect_call_user</field>
         <field name="model_id" ref="connect.model_connect_call"/>
@@ -35,8 +36,10 @@
         <field name="perm_create" eval="0"/>
         <field name="perm_unlink" eval="0"/>
     </record>
+    -->
 
     <!-- Channel -->
+    <!-- COMMENTED OUT: Restrictive visibility - now using default search filters instead
     <record id="connect_channel_user_rule" model="ir.rule">
         <field name="name">connect_channel_user</field>
         <field name="model_id" ref="connect.model_connect_channel"/>
@@ -47,8 +50,10 @@
         <field name="perm_create" eval="0"/>
         <field name="perm_unlink" eval="0"/>
     </record>
+    -->
 
     <!-- Recording -->
+    <!-- COMMENTED OUT: Restrictive visibility - now using default search filters instead
     <record id="connect_recording_user_rule" model="ir.rule">
         <field name="name">connect_recording_user</field>
         <field name="model_id" ref="connect.model_connect_recording"/>
@@ -59,6 +64,7 @@
         <field name="perm_create" eval="1"/>
         <field name="perm_unlink" eval="0"/>
     </record>
+    -->
 
     <!-- Favorites -->
     <record id="connect_favorite_user_rule" model="ir.rule">
