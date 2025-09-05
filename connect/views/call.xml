@@ -8,6 +8,7 @@
         <field name="view_ids" eval="[(5, 0, 0),
                                       (0, 0, {'view_mode': 'list', 'view_id': ref('connect.connect_call_list')}),
                                       (0, 0, {'view_mode': 'form', 'view_id': ref('connect_call_form')})]"/>
+        <field name="context">{'search_default_my_calls': 1}</field>
     </record>
 
 
@@ -263,14 +264,21 @@
                 <field name="caller_pbx_user"/>
                 <field name="called_pbx_users"/>
                 <field name="answered_pbx_user"/>
-                <filter name="by_partner" context="{'group_by': 'partner'}"/>
-                <filter name="by_caller_user" context="{'group_by': 'caller_user'}"/>
-                <filter name="by_called_user" context="{'group_by': 'called_users'}"/>
-                <filter name="by_answered_user" context="{'group_by': 'answered_user'}"/>
-                <filter name="by_direction" context="{'group_by': 'direction'}"/>
-                <filter name="by_status" context="{'group_by': 'status'}"/>
-                <filter name="by_created" context="{'group_by': 'create_date'}"/>
+                <separator/>
+                <filter name="my_calls" string="My Calls" 
+                        domain="['|', '|', '|', ('caller_user', '=', uid), ('called_users', 'in', uid), ('answered_user', '=', uid), ('transferred_users', 'in', uid)]"/>
                 <filter name="has_error" string="Failed Calls" domain="[('has_error', '=', True)]"/>
+                <group expand="0" string="Group By">
+                    <filter name="by_partner" context="{'group_by': 'partner'}"/>
+                    <filter name="by_caller_user" context="{'group_by': 'caller_user'}"/>
+                    <filter name="by_called_user" context="{'group_by': 'called_users'}"/>
+                    <filter name="by_answered_user" context="{'group_by': 'answered_user'}"/>
+                    <filter name="by_caller_number" string="Caller Number" context="{'group_by': 'caller'}"/>
+                    <filter name="by_called_number" string="Called Number" context="{'group_by': 'called'}"/>
+                    <filter name="by_direction" context="{'group_by': 'direction'}"/>
+                    <filter name="by_status" context="{'group_by': 'status'}"/>
+                    <filter name="by_created" string="Date" context="{'group_by': 'create_date:day'}"/>
+                </group>
             </search>
         </field>
     </record>
