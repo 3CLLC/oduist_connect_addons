@@ -1505,6 +1505,64 @@ class Call(models.Model):
         
     #     return f"Missed transfer from {caller_display}{transfer_info}<br>{formatted_date}"
 
+    def get_notification_users(self):
+        """
+        Gets all users who should receive missed call notifications for this call.
+        Extracted from register_call() with identical logic.
+        """
+        notify_users = []
+        
+        # Simplified notification logic based on user field states
+        logger.info(f"=== SIMPLIFIED NOTIFICATION LOGIC START ===")
+        logger.info(f"Call state - called_users: {len(self.called_users)}, answered_user: {bool(self.answered_user)}, transferred_users: {len(self.transferred_users)}, completed_by_user: {bool(self.completed_by_user)}")
+        
+        # Rule 1: called_users only (no other fields) → Everyone gets notification
+        if (self.called_users and 
+            not self.answered_user and 
+            not self.transferred_users and 
+            not self.completed_by_user):
+            
+            logger.info(f"RULE 1: called_users only - everyone gets notification")
+            for user in self.called_users:
+                connect_user = user.connect_user
+                if connect_user and connect_user[0].missed_calls_notify:
+                    notify_users.append(user)
+                    logger.info(f"  ✓ ADDED {user.login} to notifications (called user)")
+                else:
+                    reason = 'no connect_user' if not connect_user else 'notifications disabled'
+                    logger.info(f"  ✗ SKIPPED {user.login} - {reason}")
+                    
+        # Rule 2: called_users + answered_user + completed_by_user + NO transferred_users → No notifications
+        elif (self.called_users and 
+              self.answered_user and 
+              self.completed_by_user and 
+              not self.transferred_users):
+            
+            logger.info(f"RULE 2: Normal completion (answered + completed, no transfers) - no notifications")
+            
+        # Rule 3: transferred_users + NO completed_by_user → Only transferred users get notification
+        elif (self.transferred_users and 
+              not self.completed_by_user):
+            
+            logger.info(f"RULE 3: Missed transfer - only transferred users get notifications")
+            for user in self.transferred_users:
+                connect_user = user.connect_user
+                if connect_user and connect_user[0].missed_calls_notify:
+                    notify_users.append(user)
+                    logger.info(f"  ✓ ADDED {user.login} to notifications (missed transfer)")
+                else:
+                    reason = 'no connect_user' if not connect_user else 'notifications disabled'
+                    logger.info(f"  ✗ SKIPPED {user.login} - {reason}")
+                    
+        # Rule 4: Any completed_by_user exists → No notifications
+        elif self.completed_by_user:
+            logger.info(f"RULE 4: Call completed by {self.completed_by_user.login} - no notifications")
+            
+        else:
+            logger.info(f"NO MATCHING RULE: Unhandled call state - no notifications")
+        
+        return notify_users
+
     def register_call(self, channel, params):
         try:
             notify_users = []
@@ -1552,54 +1610,8 @@ class Call(models.Model):
             if channel.call.called_users:
                 message.append('dialed users: {}, '.format(', '.join(k.name for k in channel.call.called_users)))
             
-            # Simplified notification logic based on user field states
-            logger.info(f"=== SIMPLIFIED NOTIFICATION LOGIC START ===")
-            logger.info(f"Call state - called_users: {len(channel.call.called_users)}, answered_user: {bool(channel.call.answered_user)}, transferred_users: {len(channel.call.transferred_users)}, completed_by_user: {bool(channel.call.completed_by_user)}")
-            
-            # Rule 1: called_users only (no other fields) → Everyone gets notification
-            if (channel.call.called_users and 
-                not channel.call.answered_user and 
-                not channel.call.transferred_users and 
-                not channel.call.completed_by_user):
-                
-                logger.info(f"RULE 1: called_users only - everyone gets notification")
-                for user in channel.call.called_users:
-                    connect_user = user.connect_user
-                    if connect_user and connect_user[0].missed_calls_notify:
-                        notify_users.append(user)
-                        logger.info(f"  ✓ ADDED {user.login} to notifications (called user)")
-                    else:
-                        reason = 'no connect_user' if not connect_user else 'notifications disabled'
-                        logger.info(f"  ✗ SKIPPED {user.login} - {reason}")
-                        
-            # Rule 2: called_users + answered_user + completed_by_user + NO transferred_users → No notifications
-            elif (channel.call.called_users and 
-                  channel.call.answered_user and 
-                  channel.call.completed_by_user and 
-                  not channel.call.transferred_users):
-                
-                logger.info(f"RULE 2: Normal completion (answered + completed, no transfers) - no notifications")
-                
-            # Rule 3: transferred_users + NO completed_by_user → Only transferred users get notification
-            elif (channel.call.transferred_users and 
-                  not channel.call.completed_by_user):
-                
-                logger.info(f"RULE 3: Missed transfer - only transferred users get notifications")
-                for user in channel.call.transferred_users:
-                    connect_user = user.connect_user
-                    if connect_user and connect_user[0].missed_calls_notify:
-                        notify_users.append(user)
-                        logger.info(f"  ✓ ADDED {user.login} to notifications (missed transfer)")
-                    else:
-                        reason = 'no connect_user' if not connect_user else 'notifications disabled'
-                        logger.info(f"  ✗ SKIPPED {user.login} - {reason}")
-                        
-            # Rule 4: Any completed_by_user exists → No notifications
-            elif channel.call.completed_by_user:
-                logger.info(f"RULE 4: Call completed by {channel.call.completed_by_user.login} - no notifications")
-                
-            else:
-                logger.info(f"NO MATCHING RULE: Unhandled call state - no notifications")
+            # Use extracted notification method
+            notify_users = self.get_notification_users()
 
             # Register call at partner.
             if channel.call.partner:
@@ -1779,6 +1791,11 @@ class Call(models.Model):
             call_data = call.read(read_fields)[0]
             if call.called_users:
                 call_data.update({'called_users': list(call.called_users.read(['id', 'name'])[0].values())})
+            
+            # Add notification users for phone UI highlighting
+            notification_users = call.get_notification_users()
+            call_data.update({'notification_user_ids': [user.id for user in notification_users]})
+            
             payload.append(call_data)
         return payload
 

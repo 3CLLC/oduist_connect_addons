@@ -133,18 +133,23 @@ export class Calls extends Component {
             // For outgoing calls, use called (who we called)
             const call_number = item.direction === 'incoming' ? item.caller : item.called
             item.favorite = this.favorites.includes(call_number)
-            const local_time = new Date(`${item.create_date} UTC`).toLocaleTimeString("en-GB")
-            item.create_date = `${item.create_date.split(' ')[0]} ${local_time}`
             
-            // Determine if this is a missed call
+            // Format date as MM/DD/YY H:MM AM/PM (user's local timezone)
+            const call_date = new Date(`${item.create_date} UTC`)
+            const month = String(call_date.getMonth() + 1).padStart(2, '0')
+            const day = String(call_date.getDate()).padStart(2, '0')
+            const year = String(call_date.getFullYear()).slice(-2)
+            let hours = call_date.getHours()
+            const minutes = String(call_date.getMinutes()).padStart(2, '0')
+            const ampm = hours >= 12 ? 'PM' : 'AM'
+            hours = hours % 12
+            hours = hours ? hours : 12 // 0 should be 12
+            item.create_date = `${month}/${day}/${year} ${hours}:${minutes} ${ampm}`
+            
+            // Use backend notification logic for red highlighting
             item.is_missed = (
-                // Regular missed call: incoming, nobody answered
-                (item.direction === 'incoming' && 
-                 ['no-answer', 'busy', 'failed'].includes(item.status) && 
-                 !item.answered_user) 
-                ||
-                // Missed transfer: transfer occurred but nobody completed it
-                (item.transferred_users && item.transferred_users.length > 0 && !item.completed_by_user)
+                item.notification_user_ids && 
+                item.notification_user_ids.includes(this.user)
             )
             
             // Determine if this user received a transfer
