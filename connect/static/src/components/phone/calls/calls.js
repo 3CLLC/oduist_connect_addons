@@ -118,7 +118,7 @@ export class Calls extends Component {
 
     async _getCalls() {
         this.state.calls = []
-        const domain = ["|", ["caller_user", "=", this.user], ["called_users", "=", this.user]]
+        const domain = ["|", "|", "|", ["caller_user", "=", this.user], ["called_users", "in", this.user], ["answered_user", "=", this.user], ["transferred_users", "in", this.user]]
         const records = await this.orm.call("connect.call", "get_widget_calls", [domain, 20])
         for (const item of records) {
             // Debug ALL calls to see call_pattern values
