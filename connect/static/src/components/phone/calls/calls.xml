@@ -145,19 +145,19 @@
                                     <!-- Call flow icons based on type -->
                                     <t t-if="call.direction === 'outgoing'">
                                         <!-- Outgoing call - always show outgoing arrow -->
-                                        <i class="fa fa-solid fa-arrow-up fa-rotate-by" style="--fa-rotate-angle: 45deg;" title="Outgoing call"/>
+                                        <i class="oi oi-arrow-up-right" title="Outgoing call"/>
                                     </t>
                                     <t t-elif="call.is_transfer_recipient">
                                         <!-- Current user received a transfer -->
-                                        <i class="fa fa-exchange fa-lg" title="Transfer received"/>
+                                        <i class="fa fa-exchange fa-lg" title="Call transferred"/>
                                     </t>
                                     <t t-elif="!call.answered_user">
                                         <!-- Incoming call - nobody answered at all -->
-                                        <i class="fa fa-times-circle fa-lg text-danger" title="Nobody answered"/>
+                                        <i class="fa fa-times-circle fa-lg text-danger" title="Missed call"/>
                                     </t>
                                     <t t-else="">
                                         <!-- Incoming call - someone answered -->
-                                        <i class="fa fa-arrow-down fa-rotate-315 fa-lg" title="Incoming call"/>
+                                        <i class="oi oi-arrow-down-left" title="Incoming call"/>
                                     </t>
                                 </div>
                             </td>
