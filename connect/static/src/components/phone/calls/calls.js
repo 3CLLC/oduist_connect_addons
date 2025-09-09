@@ -129,6 +129,12 @@ export class Calls extends Component {
                 transferred_users: item.transferred_users?.length || 0
             });
             
+            // Check if current user received transfer on this call (needed for template)
+            item.user_received_transfer = (
+                item.transferred_users && 
+                item.transferred_users.some(user_id => parseInt(user_id) === parseInt(this.user))
+            )
+            
             // For incoming calls, always use caller (external party) for callback/favorites
             // For outgoing calls, use called (who we called)
             const call_number = item.direction === 'incoming' ? item.caller : item.called
@@ -152,11 +158,7 @@ export class Calls extends Component {
                 item.notification_user_ids.includes(this.user)
             )
             
-            // Check if current user received transfer on this call
-            item.user_received_transfer = (
-                item.transferred_users && 
-                item.transferred_users.some(user_id => parseInt(user_id) === parseInt(this.user))
-            )
+            // (user_received_transfer already set above)
             
             // Debug outgoing transfers
             if (item.direction === 'outgoing' && item.user_received_transfer) {
