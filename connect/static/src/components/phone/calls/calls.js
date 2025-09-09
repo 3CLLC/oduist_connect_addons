@@ -167,7 +167,19 @@ export class Calls extends Component {
                     caller_user: item.caller_user,
                     called: item.called,
                     called_users: item.called_users,
+                    partner: item.partner,
                     current_user: this.user
+                });
+                
+                // Debug what should be displayed
+                const called_users = item.called_users.length > 0 ? item.called_users : false;
+                const expected_caller_id = item.partner || called_users || item.called;
+                const expected_caller = item.called;
+                console.log('EXPECTED DISPLAY:', {
+                    expected_caller_id: expected_caller_id,
+                    expected_caller: expected_caller,
+                    partner: item.partner,
+                    called_users: called_users
                 });
             }
             
