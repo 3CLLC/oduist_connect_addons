@@ -145,7 +145,7 @@
                                     <!-- Call flow icons based on type -->
                                     <t t-if="call.direction === 'outgoing'">
                                         <!-- Outgoing call - always show outgoing arrow -->
-                                        <i class="fa fa-arrow-up fa-rotate-45 fa-lg" title="Outgoing call"/>
+                                        <i class="fa fa-solid fa-arrow-up fa-rotate-by" style="--fa-rotate-angle: 45deg;" title="Outgoing call"/>
                                     </t>
                                     <t t-elif="call.is_transfer_recipient">
                                         <!-- Current user received a transfer -->
