@@ -152,6 +152,12 @@ export class Calls extends Component {
                 item.notification_user_ids.includes(this.user)
             )
             
+            // Check if current user received transfer on this call
+            item.user_received_transfer = (
+                item.transferred_users && 
+                item.transferred_users.some(user_id => parseInt(user_id) === parseInt(this.user))
+            )
+            
             // Determine if this user received a transfer
             // For ring group calls, transferred_users may contain all ring participants
             // A true transfer recipient is someone who:

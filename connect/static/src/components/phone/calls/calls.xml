@@ -81,7 +81,7 @@
                         <!-- Outgoing call logic -->
                         <t t-else="">
                             <!-- Check if current user received transfer on outgoing call -->
-                            <t t-if="call.transferred_users and call.transferred_users.some(user_id => parseInt(user_id) === parseInt(user))">
+                            <t t-if="call.user_received_transfer">
                                 <!-- User received transfer: show original external caller info -->
                                 <t t-set="caller_id" t-value="call.partner or call.caller_user or call.caller"/>
                                 <t t-set="caller" t-value="call.caller"/>
@@ -155,7 +155,7 @@
                                     <!-- Call flow icons based on type -->
                                     <t t-if="call.direction === 'outgoing'">
                                         <!-- Outgoing calls -->
-                                        <t t-if="call.transferred_users and call.transferred_users.some(user_id => parseInt(user_id) === parseInt(user))">
+                                        <t t-if="call.user_received_transfer">
                                             <!-- User received transfer on outgoing call -->
                                             <i class="fa fa-exchange fa-lg" title="Call transferred"/>
                                         </t>
@@ -189,7 +189,7 @@
                                     <!-- Call type badge in top right -->
                                     <t t-if="call.direction === 'outgoing'">
                                         <!-- Outgoing calls: only show tag if transfer -->
-                                        <t t-if="call.transferred_users and call.transferred_users.some(user_id => parseInt(user_id) === parseInt(user)) and transfer_info">
+                                        <t t-if="call.user_received_transfer and transfer_info">
                                             <span class="call-type-badge transfer-badge" t-attf-title="Transferred from {{Array.isArray(transfer_info) ? transfer_info[1] : transfer_info}}">via <t t-if="Array.isArray(transfer_info)" t-out="transfer_info[1].split(' ')[0]"/><t t-else="" t-out="transfer_info.split(' ')[0]"/></span>
                                         </t>
                                         <!-- No tag for regular outgoing calls -->
