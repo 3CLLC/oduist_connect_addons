@@ -143,21 +143,21 @@
                                 <div class="call-icon" t-on-click="() => this._open_detail(call)"
                                      title="Click to view detail">
                                     <!-- Call flow icons based on type -->
-                                    <t t-if="!call.answered_user">
-                                        <!-- Nobody answered at all -->
-                                        <i class="fa fa-times-circle fa-lg text-danger" title="Nobody answered"/>
+                                    <t t-if="call.direction === 'outgoing'">
+                                        <!-- Outgoing call - always show outgoing arrow -->
+                                        <i class="fa fa-arrow-up fa-rotate-45 fa-lg" title="Outgoing call"/>
                                     </t>
                                     <t t-elif="call.is_transfer_recipient">
                                         <!-- Current user received a transfer -->
                                         <i class="fa fa-exchange fa-lg" title="Transfer received"/>
                                     </t>
-                                    <t t-elif="call.direction === 'incoming'">
-                                        <!-- Incoming call -->
-                                        <i class="fa fa-arrow-down fa-rotate-315 fa-lg" title="Incoming call"/>
+                                    <t t-elif="!call.answered_user">
+                                        <!-- Incoming call - nobody answered at all -->
+                                        <i class="fa fa-times-circle fa-lg text-danger" title="Nobody answered"/>
                                     </t>
                                     <t t-else="">
-                                        <!-- Outgoing call -->
-                                        <i class="fa fa-arrow-up fa-rotate-45 fa-lg" title="Outgoing call"/>
+                                        <!-- Incoming call - someone answered -->
+                                        <i class="fa fa-arrow-down fa-rotate-315 fa-lg" title="Incoming call"/>
                                     </t>
                                 </div>
                             </td>
