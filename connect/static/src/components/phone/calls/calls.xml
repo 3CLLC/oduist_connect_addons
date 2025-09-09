@@ -65,8 +65,17 @@
             <t t-if="state.calls">
                 <table class="o_history_table">
                     <t t-foreach="state.calls" t-as="call" t-key="call.id">
+                        <!-- Debug which template path call 36 takes -->
+                        <t t-if="call.id == 36">
+                            <script>console.log('TEMPLATE PATH call 36:', {
+                                is_transfer_recipient: '<t t-out="call.is_transfer_recipient"/>',
+                                direction: '<t t-out="call.direction"/>'
+                            });</script>
+                        </t>
+                        
                         <!-- Transfer recipient logic: show original caller -->
                         <t t-if="call.is_transfer_recipient">
+                            <t t-if="call.id == 36"><script>console.log('call 36: Taking TRANSFER RECIPIENT path');</script></t>
                             <t t-set="caller_id" t-value="call.display_caller_info.original_partner or call.display_caller_info.original_caller_user or call.display_caller_info.original_caller"/>
                             <t t-set="caller" t-value="call.display_caller_info.original_caller"/>
                             <t t-set="transfer_info" t-value="call.display_caller_info.transferring_user"/>
