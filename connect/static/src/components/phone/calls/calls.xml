@@ -87,6 +87,16 @@
                                 <t t-set="caller_id" t-value="call.partner or called_users or call.called"/>
                                 <t t-set="caller" t-value="call.called"/>
                                 <t t-set="transfer_info" t-value="call.caller_user"/>
+                                <!-- Debug template values -->
+                                <t t-if="call.id == 36">
+                                    <script>console.log('TEMPLATE DEBUG call 36 - OUTGOING TRANSFER:', {
+                                        caller_id: '<t t-out="caller_id"/>',
+                                        caller: '<t t-out="caller"/>',
+                                        transfer_info: '<t t-out="transfer_info"/>',
+                                        call_called: '<t t-out="call.called"/>',
+                                        call_partner: '<t t-out="call.partner"/>'
+                                    });</script>
+                                </t>
                             </t>
                             <t t-else="">
                                 <!-- Regular outgoing call: show who user called -->
