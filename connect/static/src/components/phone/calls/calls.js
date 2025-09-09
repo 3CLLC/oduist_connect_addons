@@ -158,6 +158,19 @@ export class Calls extends Component {
                 item.transferred_users.some(user_id => parseInt(user_id) === parseInt(this.user))
             )
             
+            // Debug outgoing transfers
+            if (item.direction === 'outgoing' && item.user_received_transfer) {
+                console.log('OUTGOING TRANSFER DEBUG:', item.id, {
+                    direction: item.direction,
+                    user_received_transfer: item.user_received_transfer,
+                    transferred_users: item.transferred_users,
+                    caller_user: item.caller_user,
+                    called: item.called,
+                    called_users: item.called_users,
+                    current_user: this.user
+                });
+            }
+            
             // Determine if this user received a transfer
             // For ring group calls, transferred_users may contain all ring participants
             // A true transfer recipient is someone who:
