@@ -139,13 +139,13 @@
                         </t>
 
                         <tr class="d-flex" t-attf-class="{{call.is_missed ? 'missed-call' : ''}} {{call.is_transfer_recipient ? 'transfer-call' : ''}}">
-                            <td class="o_call_icon" t-attf-class="{{call.is_missed ? 'missed-call' : ''}}">
+                            <td class="o_call_icon" style="padding: 5px;" t-attf-class="{{call.is_missed ? 'missed-call' : ''}}">
                                 <div class="call-icon" t-on-click="() => this._open_detail(call)"
                                      title="Click to view detail">
                                     <!-- Call flow icons based on type -->
                                     <t t-if="call.direction === 'outgoing'">
                                         <!-- Outgoing call - always show outgoing arrow -->
-                                        <i class="oi oi-arrow-up-right" title="Outgoing call"/>
+                                        <i class="oi oi-arrow-up-right" style="font-size: 1.315em;" title="Outgoing call"/>
                                     </t>
                                     <t t-elif="call.is_transfer_recipient">
                                         <!-- Current user received a transfer -->
@@ -157,7 +157,7 @@
                                     </t>
                                     <t t-else="">
                                         <!-- Incoming call - someone answered -->
-                                        <i class="oi oi-arrow-down-left" title="Incoming call"/>
+                                        <i class="oi oi-arrow-down-left" style="font-size: 1.315em;" title="Incoming call"/>
                                     </t>
                                 </div>
                             </td>
