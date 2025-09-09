@@ -80,6 +80,15 @@
                         </t>
                         <!-- Outgoing call logic -->
                         <t t-else="">
+                            <!-- Debug outgoing call data for call 36 -->
+                            <t t-if="call.id == 36">
+                                <script>console.log('OUTGOING SECTION DEBUG call 36:', {
+                                    transferred_users: '<t t-out="call.transferred_users"/>',
+                                    user: '<t t-out="user"/>',
+                                    includes_check: '<t t-out="call.transferred_users and call.transferred_users.includes(user)"/>'
+                                });</script>
+                            </t>
+                            
                             <!-- Check if current user received transfer on outgoing call -->
                             <t t-if="call.transferred_users and call.transferred_users.includes(user)">
                                 <!-- User received transfer: show who user originally called -->
