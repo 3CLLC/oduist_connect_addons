@@ -584,6 +584,7 @@ class Settings(models.Model):
                 ssml_replacement = f'<sub alias="{pronunciation}">{original}</sub>'
                 processed_text = processed_text.replace(original, ssml_replacement)
             
+            logger.info(f'Pronunciation processing: "{text}" -> "{processed_text}"')
             return processed_text
             
         except (json.JSONDecodeError, Exception) as e:
