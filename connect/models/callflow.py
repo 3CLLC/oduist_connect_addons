@@ -186,7 +186,8 @@ class CallFlow(models.Model):
                 if not callerId:
                     response = VoiceResponse()
                     system_voice = self.env['connect.settings'].get_system_voice()
-                    response.say('Your must configure a default number for caller ID!', voice=system_voice)
+                    processed_text = self.env['connect.settings'].process_pronunciation('Your must configure a default number for caller ID!')
+                    response.say(processed_text, voice=system_voice)
                     return response
             if self.record_calls:
                 dial = Dial(callerId=callerId, action=action_url, timeout=self.ring_timeout,
@@ -234,7 +235,8 @@ class CallFlow(models.Model):
             else:
                 # No voicemail, just say sorry and hangup.
                 system_voice = self.env['connect.settings'].get_system_voice()
-                response.say('This callflow has no actions! Goodbye!', voice=system_voice)
+                processed_text = self.env['connect.settings'].process_pronunciation('This callflow has no actions! Goodbye!')
+                response.say(processed_text, voice=system_voice)
                 response.pause(length=1)
                 response.hangup()
         debug(self, pretty_xml(str(response)))
@@ -243,16 +245,19 @@ class CallFlow(models.Model):
     def get_prompt_message(self, response):
         debug(self, 'Saying prompt message for Call Flow {}'.format(self.name))
         system_voice = self.env['connect.settings'].get_system_voice()
+        processed_text = self.env['connect.settings'].process_pronunciation(self.prompt_message)
         logger.info(f'CallFlow get_prompt_message: Using voice={system_voice}, language={self.language}')
-        response.say(self.prompt_message, language=self.language, voice=system_voice)
+        response.say(processed_text, language=self.language, voice=system_voice)
 
     def get_gather_invalid_input_message(self, response):
         system_voice = self.env['connect.settings'].get_system_voice()
-        response.say(self.invalid_input_message, language=self.language, voice=system_voice)
+        processed_text = self.env['connect.settings'].process_pronunciation(self.invalid_input_message)
+        response.say(processed_text, language=self.language, voice=system_voice)
 
     def get_voicemail_prompt_message(self, response):
         system_voice = self.env['connect.settings'].get_system_voice()
-        response.say(self.voicemail_prompt, language=self.language, voice=system_voice)
+        processed_text = self.env['connect.settings'].process_pronunciation(self.voicemail_prompt)
+        response.say(processed_text, language=self.language, voice=system_voice)
 
     @api.model
     def on_call_action(self, flow_id, request):
@@ -265,7 +270,8 @@ class CallFlow(models.Model):
                 record_status_url = urljoin(api_url, 'twilio/webhook/vm_recordingstatus')
                 response.pause(length=1)
                 system_voice = self.env['connect.settings'].get_system_voice()
-                response.say(callflow.voicemail_prompt, language=callflow.language, voice=system_voice)
+                processed_text = self.env['connect.settings'].process_pronunciation(callflow.voicemail_prompt)
+                response.say(processed_text, language=callflow.language, voice=system_voice)
                 response.record(
                     maxLength=120,
                     finishOnKey='#',
@@ -274,7 +280,8 @@ class CallFlow(models.Model):
             else:
                 # No voicemail, just say sorry and hangup.
                 system_voice = self.env['connect.settings'].get_system_voice()
-                response.say('Sorry, I could not connect your call. Goodbye!', voice=system_voice)
+                processed_text = self.env['connect.settings'].process_pronunciation('Sorry, I could not connect your call. Goodbye!')
+                response.say(processed_text, voice=system_voice)
                 response.pause(length=1)
                 response.hangup()
         else:

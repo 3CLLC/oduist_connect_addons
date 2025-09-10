@@ -535,13 +535,15 @@ class User(models.Model):
                     # User has personalized voicemail prompt
                     personalized_prompt = user.render_voicemail_prompt()
                     system_voice = self.env['connect.settings'].get_system_voice()
-                    response.say(personalized_prompt, voice=system_voice)
+                    processed_text = self.env['connect.settings'].process_pronunciation(personalized_prompt)
+                    response.say(processed_text, voice=system_voice)
                     logger.info(f'Using personalized voicemail prompt for {user.name}')
                 else:
                     # User has voicemail enabled but no personalized prompt - use generic with name
                     generic_prompt = f'{user.name} is not available. Please leave a message.'
                     system_voice = self.env['connect.settings'].get_system_voice()
-                    response.say(generic_prompt, voice=system_voice)
+                    processed_text = self.env['connect.settings'].process_pronunciation(generic_prompt)
+                    response.say(processed_text, voice=system_voice)
                     logger.info(f'Using generic voicemail prompt for {user.name}')
                 
                 response.record(
@@ -553,7 +555,8 @@ class User(models.Model):
             else:
                 # Voicemail is completely disabled - generic message and hangup
                 system_voice = self.env['connect.settings'].get_system_voice()
-                response.say('Sorry, I could not connect your call. Please try again later. Goodbye!', voice=system_voice)
+                processed_text = self.env['connect.settings'].process_pronunciation('Sorry, I could not connect your call. Please try again later. Goodbye!')
+                response.say(processed_text, voice=system_voice)
                 response.pause(length=1) 
                 response.hangup()
                 logger.info(f'Voicemail disabled for {user.name} - using generic hangup message')
@@ -565,13 +568,15 @@ class User(models.Model):
         # Override in Elevenlabs module.
         self.ensure_one()
         system_voice = self.env['connect.settings'].get_system_voice()
-        response.say(self.greeting_message, voice=system_voice)
+        processed_text = self.env['connect.settings'].process_pronunciation(self.greeting_message)
+        response.say(processed_text, voice=system_voice)
 
     def get_voicemail_prompt(self, response):
         self.ensure_one()
         voicemail_prompt = self.render_voicemail_prompt()
         system_voice = self.env['connect.settings'].get_system_voice()
-        response.say(voicemail_prompt, voice=system_voice)
+        processed_text = self.env['connect.settings'].process_pronunciation(voicemail_prompt)
+        response.say(processed_text, voice=system_voice)
 
     def render_voicemail_prompt(self):
         self.ensure_one()

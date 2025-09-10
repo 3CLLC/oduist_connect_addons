@@ -127,7 +127,8 @@ class Exten(models.Model):
         if not self.dst:
             response = VoiceResponse()
             system_voice = self.env['connect.settings'].get_system_voice()
-            response.say('Extension not configured!', voice=system_voice)
+            processed_text = self.env['connect.settings'].process_pronunciation('Extension not configured!')
+            response.say(processed_text, voice=system_voice)
             return response
         params['ExtenID'] = self.id
         params['ExtenNumber'] = self.number
