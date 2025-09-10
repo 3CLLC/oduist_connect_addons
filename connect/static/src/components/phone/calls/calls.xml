@@ -155,31 +155,31 @@
                             <td class="o_call_icon" style="padding: 5px;" t-attf-class="{{call.is_missed ? 'missed-call' : ''}}">
                                 <div class="call-icon" t-on-click="() => this._open_detail(call)"
                                      title="Click to view detail">
-                                    <!-- Call flow icons based on type -->
-                                    <t t-if="call.direction === 'outgoing'">
+                                    <!-- Call flow icons - match call details logic -->
+                                    <t t-if="call.direction === 'incoming'">
+                                        <!-- Incoming calls -->
+                                        <t t-if="call.is_transfer_recipient">
+                                            <!-- Incoming transfer recipient -->
+                                            <i class="fa fa-exchange fa-lg" title="Call transferred"/>
+                                        </t>
+                                        <t t-elif="!call.answered_user">
+                                            <!-- Nobody answered at all -->
+                                            <i class="fa fa-times-circle fa-lg text-danger" title="Missed call"/>
+                                        </t>
+                                        <t t-else="">
+                                            <!-- Regular incoming call -->
+                                            <i class="oi oi-arrow-down-left" style="font-size: 1.315em;" title="Incoming call"/>
+                                        </t>
+                                    </t>
+                                    <t t-else="">
                                         <!-- Outgoing calls -->
-                                        <t t-if="call.user_received_transfer">
-                                            <!-- User received transfer on outgoing call -->
+                                        <t t-if="call.transferred_users and call.transferred_users.includes(user)">
+                                            <!-- Outgoing transfer recipient -->
                                             <i class="fa fa-exchange fa-lg" title="Call transferred"/>
                                         </t>
                                         <t t-else="">
                                             <!-- Regular outgoing call -->
                                             <i class="oi oi-arrow-up-right" style="font-size: 1.315em;" title="Outgoing call"/>
-                                        </t>
-                                    </t>
-                                    <t t-else="">
-                                        <!-- Incoming calls -->
-                                        <t t-if="call.is_transfer_recipient">
-                                            <!-- Current user received a transfer -->
-                                            <i class="fa fa-exchange fa-lg" title="Call transferred"/>
-                                        </t>
-                                        <t t-elif="!call.answered_user">
-                                            <!-- Incoming call - nobody answered at all -->
-                                            <i class="fa fa-times-circle fa-lg text-danger" title="Missed call"/>
-                                        </t>
-                                        <t t-else="">
-                                            <!-- Incoming call - someone answered -->
-                                            <i class="oi oi-arrow-down-left" style="font-size: 1.315em;" title="Incoming call"/>
                                         </t>
                                     </t>
                                 </div>
@@ -189,25 +189,29 @@
                                      t-on-click="() => this._onClickContactCall(caller)"
                                      t-attf-title="Call to {{caller}}"
                                      t-attf-class="{{call.is_transfer_recipient ? 'transfer-call' : ''}}">
-                                    <!-- Call type badge in top right -->
-                                    <t t-if="call.direction === 'outgoing'">
-                                        <!-- Outgoing calls: only show tag if transfer -->
-                                        <t t-if="call.user_received_transfer and transfer_info">
-                                            <span class="call-type-badge transfer-badge" t-attf-title="Transferred from {{Array.isArray(transfer_info) ? transfer_info[1] : transfer_info}}">via <t t-if="Array.isArray(transfer_info)" t-out="transfer_info[1].split(' ')[0]"/><t t-else="" t-out="transfer_info.split(' ')[0]"/></span>
-                                        </t>
-                                        <!-- No tag for regular outgoing calls -->
-                                    </t>
-                                    <t t-else="">
-                                        <!-- Incoming calls: existing logic -->
+                                    <!-- Call type badge - match call details logic -->
+                                    <t t-if="call.direction === 'incoming'">
+                                        <!-- Incoming calls -->
                                         <t t-if="call.is_transfer_recipient and transfer_info">
+                                            <!-- Incoming transfer recipient -->
                                             <span class="call-type-badge transfer-badge" t-attf-title="Transferred from {{Array.isArray(transfer_info) ? transfer_info[1] : transfer_info}}">via <t t-if="Array.isArray(transfer_info)" t-out="transfer_info[1].split(' ')[0]"/><t t-else="" t-out="transfer_info.split(' ')[0]"/></span>
                                         </t>
                                         <t t-elif="call.call_pattern === 'ring_group'">
+                                            <!-- Regular incoming group call -->
                                             <span class="call-type-badge ring-group-badge" title="Ring Group Call - Multiple people called">Group</span>
                                         </t>
                                         <t t-else="">
+                                            <!-- Regular incoming direct call -->
                                             <span class="call-type-badge direct-call-badge" title="Direct Call - Called one person">Direct</span>
                                         </t>
+                                    </t>
+                                    <t t-else="">
+                                        <!-- Outgoing calls -->
+                                        <t t-if="call.transferred_users and call.transferred_users.includes(user) and transfer_info">
+                                            <!-- Outgoing transfer recipient -->
+                                            <span class="call-type-badge transfer-badge" t-attf-title="Transferred from {{Array.isArray(transfer_info) ? transfer_info[1] : transfer_info}}">via <t t-if="Array.isArray(transfer_info)" t-out="transfer_info[1].split(' ')[0]"/><t t-else="" t-out="transfer_info.split(' ')[0]"/></span>
+                                        </t>
+                                        <!-- No tag for regular outgoing calls -->
                                     </t>
                                     <div>
                                         <div class="card-identifier" t-attf-class="{{call.is_missed ? 'missed-call-text' : ''}}">
