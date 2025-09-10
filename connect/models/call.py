@@ -225,8 +225,6 @@ class Call(models.Model):
                         
                         # Label for each recording
                         label = 'Recording {}'.format(i)
-                        if recording.called_user:
-                            label += ' - {}'.format(recording.called_user.name)
                         
                         recordings_html.append(
                             '<div style="margin-bottom: 10px;">'
