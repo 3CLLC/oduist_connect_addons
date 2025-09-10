@@ -186,7 +186,8 @@ class CallFlow(models.Model):
                     [('is_default', '=', True)], limit=1).number
                 if not callerId:
                     response = VoiceResponse()
-                    response.say('Your must configure a default number for caller ID!')
+                    system_voice = self.env['connect.settings'].get_system_voice()
+                    response.say('Your must configure a default number for caller ID!', voice=system_voice)
                     return response
             if self.record_calls:
                 dial = Dial(callerId=callerId, action=action_url, timeout=self.ring_timeout,
@@ -233,7 +234,8 @@ class CallFlow(models.Model):
                     recordingStatusCallback=voicemail_record_status_url)
             else:
                 # No voicemail, just say sorry and hangup.
-                response.say('This callflow has no actions! Goodbye!')
+                system_voice = self.env['connect.settings'].get_system_voice()
+                response.say('This callflow has no actions! Goodbye!', voice=system_voice)
                 response.pause(length=1)
                 response.hangup()
         debug(self, pretty_xml(str(response)))
@@ -241,13 +243,16 @@ class CallFlow(models.Model):
 
     def get_prompt_message(self, response):
         debug(self, 'Saying prompt message for Call Flow {}'.format(self.name))
-        response.say(self.prompt_message, language=self.language, voice=self.voice)
+        system_voice = self.env['connect.settings'].get_system_voice()
+        response.say(self.prompt_message, language=self.language, voice=system_voice)
 
     def get_gather_invalid_input_message(self, response):
-        response.say(self.invalid_input_message, language=self.language, voice=self.voice)
+        system_voice = self.env['connect.settings'].get_system_voice()
+        response.say(self.invalid_input_message, language=self.language, voice=system_voice)
 
     def get_voicemail_prompt_message(self, response):
-        response.say(self.voicemail_prompt, language=self.language, voice=self.voice)
+        system_voice = self.env['connect.settings'].get_system_voice()
+        response.say(self.voicemail_prompt, language=self.language, voice=system_voice)
 
     @api.model
     def on_call_action(self, flow_id, request):
@@ -259,7 +264,8 @@ class CallFlow(models.Model):
                 api_url = self.env['connect.settings'].sudo().get_param('api_url')
                 record_status_url = urljoin(api_url, 'twilio/webhook/vm_recordingstatus')
                 response.pause(length=1)
-                response.say(callflow.voicemail_prompt, language=callflow.language, voice=callflow.voice)
+                system_voice = self.env['connect.settings'].get_system_voice()
+                response.say(callflow.voicemail_prompt, language=callflow.language, voice=system_voice)
                 response.record(
                     maxLength=120,
                     finishOnKey='#',
@@ -267,7 +273,8 @@ class CallFlow(models.Model):
                     recordingStatusCallback=record_status_url)
             else:
                 # No voicemail, just say sorry and hangup.
-                response.say('Sorry, I could not connect your call. Goodbye!')
+                system_voice = self.env['connect.settings'].get_system_voice()
+                response.say('Sorry, I could not connect your call. Goodbye!', voice=system_voice)
                 response.pause(length=1)
                 response.hangup()
         else:
