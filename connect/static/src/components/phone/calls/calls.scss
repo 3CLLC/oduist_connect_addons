@@ -22,7 +22,7 @@ $color-missed-call-bg: #f8d7da;
         background-color: $color-light-gray;
       }
 
-      .o_partner_icon:hover, .o_history_info:hover, {
+      .o_partner_icon:hover, .o_history_info:hover {
         background: radial-gradient(transparent, #c7c8c8ef);
       }
     }
@@ -84,18 +84,9 @@ $color-missed-call-bg: #f8d7da;
           padding: 1px 2px;
           border-radius: 10px;
           z-index: 10;
-          
-          &.ring-group-badge {
-            background-color: #e7f3ff;
-            color: #0066cc;
-            border: 1px solid #cce7ff;
-          }
-          
-          &.direct-call-badge {
-            background-color: #f0f9ff;
-            color: #0284c7;
-            border: 1px solid #bae6fd;
-          }
+          background-color: #714B67;
+          color: white;
+          border: 1px solid darken(#714B67, 10%);
         }
 
         .card-identifier {
