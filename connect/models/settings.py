@@ -577,12 +577,19 @@ class Settings(models.Model):
             
             rules = json.loads(rules_json)
             processed_text = text
+            has_substitutions = False
             
             # Apply each pronunciation rule
             for original, pronunciation in rules.items():
-                # Replace with SSML <sub> tag (no <speak> wrapper needed for Twilio)
-                ssml_replacement = f'<sub alias="{pronunciation}">{original}</sub>'
-                processed_text = processed_text.replace(original, ssml_replacement)
+                if original in processed_text:
+                    # Replace with SSML <sub> tag
+                    ssml_replacement = f'<sub alias="{pronunciation}">{original}</sub>'
+                    processed_text = processed_text.replace(original, ssml_replacement)
+                    has_substitutions = True
+            
+            # If we made any substitutions, wrap the entire text in <speak> tags
+            if has_substitutions:
+                processed_text = f'<speak>{processed_text}</speak>'
             
             logger.info(f'Pronunciation processing: "{text}" -> "{processed_text}"')
             return processed_text
@@ -590,6 +597,55 @@ class Settings(models.Model):
         except (json.JSONDecodeError, Exception) as e:
             logger.warning(f'Error processing pronunciation rules: {e}')
             return text
+
+    @api.model
+    def add_pronunciation_say(self, response, text, voice=None, language=None):
+        """Add Say with pronunciation using Twilio's built-in sub() method"""
+        try:
+            rules_json = self.sudo().get_param('pronunciation_rules')
+            if not rules_json:
+                # No rules, use regular say
+                response.say(text, voice=voice, language=language)
+                return
+            
+            rules = json.loads(rules_json)
+            
+            # Check if any rules apply to this text
+            has_substitutions = any(original in text for original in rules.keys())
+            if not has_substitutions:
+                # No substitutions needed, use regular say
+                response.say(text, voice=voice, language=language)
+                return
+            
+            # Build Say with substitutions using Twilio's sub() method
+            logger.info(f'Building Say with substitutions for: {text}')
+            say = response.say("", voice=voice, language=language)  # Empty say to start
+            
+            remaining_text = text
+            for original, pronunciation in rules.items():
+                if original in remaining_text:
+                    # Split on the single occurrence (simplified for 1 substitution per message)
+                    before, after = remaining_text.split(original, 1)
+                    
+                    # Add text before the substitution
+                    if before:
+                        say.add_text(before)
+                    
+                    # Add the substitution
+                    say.sub(original, alias=pronunciation)
+                    
+                    # Continue with remaining text
+                    remaining_text = after
+                    break  # Only expect one substitution per message
+            
+            # Add any remaining text
+            if remaining_text:
+                say.add_text(remaining_text)
+                
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f'Error processing pronunciation with sub(): {e}')
+            # Fallback to regular say
+            response.say(text, voice=voice, language=language)
 
     @api.model
     def get_client(self):

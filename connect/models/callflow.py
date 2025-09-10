@@ -247,18 +247,7 @@ class CallFlow(models.Model):
         system_voice = self.env['connect.settings'].get_system_voice()
         processed_text = self.env['connect.settings'].process_pronunciation(self.prompt_message)
         logger.info(f'CallFlow get_prompt_message: Using voice={system_voice}, language={self.language}')
-        
-        # Test: If SSML is present, add raw TwiML XML instead of using response.say()
-        if '<sub alias=' in processed_text:
-            logger.info(f'Adding raw TwiML for SSML: {processed_text}')
-            # Manually append the Say XML to the response body
-            say_xml = f'<Say voice="{system_voice}" language="{self.language}">{processed_text}</Say>'
-            # Get current response body and append our Say element
-            current_body = str(response).replace('</Response>', f'{say_xml}</Response>')
-            # Replace the response content
-            response._body = current_body.replace('<?xml version="1.0" encoding="UTF-8"?><Response>', '')
-        else:
-            response.say(processed_text, language=self.language, voice=system_voice)
+        response.say(processed_text, language=self.language, voice=system_voice)
 
     def get_gather_invalid_input_message(self, response):
         system_voice = self.env['connect.settings'].get_system_voice()
