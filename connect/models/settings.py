@@ -556,7 +556,9 @@ class Settings(models.Model):
     @api.model
     def get_system_voice(self):
         """Get the system-wide voice setting for all TwiML say() calls"""
-        return self.sudo().get_param('system_voice', 'Ruth-Generative')
+        voice = self.sudo().get_param('system_voice', 'Ruth-Generative')
+        logger.info(f'get_system_voice() returning: {voice}')
+        return voice
 
     @api.model
     def get_client(self):

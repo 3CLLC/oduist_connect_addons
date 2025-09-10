@@ -243,6 +243,7 @@ class CallFlow(models.Model):
     def get_prompt_message(self, response):
         debug(self, 'Saying prompt message for Call Flow {}'.format(self.name))
         system_voice = self.env['connect.settings'].get_system_voice()
+        logger.info(f'CallFlow get_prompt_message: Using voice={system_voice}, language={self.language}')
         response.say(self.prompt_message, language=self.language, voice=system_voice)
 
     def get_gather_invalid_input_message(self, response):
