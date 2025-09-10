@@ -14,10 +14,6 @@ $color-missed-call-bg: #f8d7da;
       height: 62px;
       border-bottom: 1px solid $o-brand-odoo;
 
-      &.transfer-call {
-        height: 78px;
-      }
-
       &:hover {
         background-color: $color-light-gray;
       }
@@ -172,20 +168,4 @@ $color-missed-call-bg: #f8d7da;
 
 .call-status-busy {
   color: #ffc107; // Yellow for busy calls
-}
-
-// Transfer information styling
-.transfer-info {
-  font-size: 11px !important;
-  color: #6c757d;
-  font-style: italic;
-
-  .fa-share {
-    font-size: 10px;
-    opacity: 0.7;
-  }
-
-  .transfer-text {
-    font-size: 10px;
-  }
 }
