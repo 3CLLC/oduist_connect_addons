@@ -186,18 +186,12 @@ export class Calls extends Component {
             }
             
             // Determine if this user received a transfer
-            // For ring group calls, transferred_users may contain all ring participants
-            // A true transfer recipient is someone who:
-            // 1. Is in transferred_users AND
-            // 2. Was NOT in the original called_users (original ring group)
-            const was_originally_called = item.called_users && item.called_users.some(user_id => 
-                parseInt(user_id) === parseInt(this.user)  // Ensure both are same data type
-            );
+            // If user is in transferred_users, they received a transfer regardless of whether
+            // they were also originally called (transfer is the most recent/relevant action)
             item.is_transfer_recipient = (
                 item.transferred_users && 
                 item.transferred_users.length > 0 && 
-                item.transferred_users.includes(this.user) &&
-                !was_originally_called  // Only true transfer recipients, not original ring group members
+                item.transferred_users.includes(this.user)
             )
             
             // Debug logging for call patterns
@@ -213,7 +207,7 @@ export class Calls extends Component {
                     transferred_users: item.transferred_users,
                     called_users: item.called_users,
                     is_transfer_recipient: item.is_transfer_recipient,
-                    was_originally_called: was_originally_called
+                    current_user: this.user
                 });
             }
             
