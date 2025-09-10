@@ -59,10 +59,6 @@
                             </field>
                         </group>
                         <group>
-                            <div id="see_more" colspan="2">
-                                <small>See available voices <a target="_new" href="https://www.twilio.com/docs/voice/twiml/say/text-speech#available-voices-and-languages">here</a></small>
-                            </div>
-                            <field name="voice" placeholder="Man"/>
                             <field name="ring_users" widget="many2many_tags"/>
                             <field name="ring_timeout" string="Ring Timeout (seconds)"/>
                             <field name="record_calls"/>

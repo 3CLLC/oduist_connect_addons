@@ -58,6 +58,8 @@
                       invisible="is_registered == False">
                   <group>
                     <group >
+                      <field name="system_voice"/>
+                      <small colspan="2">All Amazon Generative voices are available. See Twilio voice options <a target="_new" href="https://www.twilio.com/docs/voice/twiml/say/text-speech#available-voices-and-languages">here</a>.</small>
                       <field name="proxy_recordings"/>
                       <small colspan="2">If you disable it remove the HTTP AUTH in Twilio. Read <a target="new" href="https://help.twilio.com/articles/15827821586843">more</a>.</small>
                     </group>
