@@ -146,12 +146,12 @@ class Settings(models.Model):
     latest_versions = fields.Html(readonly=True)
     # Voice settings
     system_voice = fields.Selection([
-        ('Danielle-Generative', 'Danielle Generative (en-US)'),
-        ('Joanna-Generative', 'Joanna Generative (en-US)'),
-        ('Matthew-Generative', 'Matthew Generative (en-US)'),
-        ('Ruth-Generative', 'Ruth Generative (en-US)'),
-        ('Stephen-Generative', 'Stephen Generative (en-US)')
-    ], string='System Voice', default='Ruth-Generative', required=True,
+        ('Polly.Danielle-Generative', 'Danielle Generative (en-US)'),
+        ('Polly.Joanna-Generative', 'Joanna Generative (en-US)'),
+        ('Polly.Matthew-Generative', 'Matthew Generative (en-US)'),
+        ('Polly.Ruth-Generative', 'Ruth Generative (en-US)'),
+        ('Polly.Stephen-Generative', 'Stephen Generative (en-US)')
+    ], string='System Voice', default='Polly.Ruth-Generative', required=True,
        help='Voice used for all system prompts (callflow messages, voicemail, transfers, etc.)')
 
     def get_module_version(self, module_name):
@@ -556,7 +556,7 @@ class Settings(models.Model):
     @api.model
     def get_system_voice(self):
         """Get the system-wide voice setting for all TwiML say() calls"""
-        voice = self.sudo().get_param('system_voice', 'Ruth-Generative')
+        voice = self.sudo().get_param('system_voice', 'Polly.Ruth-Generative')
         logger.info(f'get_system_voice() returning: {voice}')
         return voice
 
