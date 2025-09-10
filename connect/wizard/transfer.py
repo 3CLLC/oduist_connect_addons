@@ -271,7 +271,8 @@ class CallForwardHandler(models.TransientModel):
             else:
                 # External number - use TwiML approach with announcement
                 response = VoiceResponse()
-                response.say('Connecting your call now.')
+                system_voice = self.env['connect.settings'].get_system_voice()
+                response.say('Connecting your call now.', voice=system_voice)
                 dial = Dial(timeout=30)
                 dial.number(target_number)
                 response.append(dial)
@@ -489,7 +490,8 @@ class CallForwardHandler(models.TransientModel):
             logger.info(f'=== OUTGOING CALL DETECTED - USING BRIDGE TRANSFER ===')
             # For outgoing calls, return minimal TwiML and handle via bridge method
             response = VoiceResponse()
-            response.say('Transfer initiated. Please stand by.')
+            system_voice = self.env['connect.settings'].get_system_voice()
+            response.say('Transfer initiated. Please stand by.', voice=system_voice)
             
             twiml_output = str(response)
             logger.info(f'Generated minimal TwiML for bridge transfer: {twiml_output}')
@@ -498,7 +500,8 @@ class CallForwardHandler(models.TransientModel):
         # For incoming calls, use the standard TwiML approach
         logger.info(f'=== INCOMING CALL - USING STANDARD TWIML TRANSFER ===')
         response = VoiceResponse()
-        response.say('Transferring your call now.')
+        system_voice = self.env['connect.settings'].get_system_voice()
+        response.say('Transferring your call now.', voice=system_voice)
         
         # Get the base URL for webhook callbacks
         api_url = self.env['connect.settings'].sudo().get_param('api_url')
@@ -526,7 +529,8 @@ class CallForwardHandler(models.TransientModel):
         logger.info(f'Appended dial element to response')
         
         # Critical: Add continuation TwiML that executes AFTER the dial completes
-        response.say('Call could not be completed. Please try again.')
+        system_voice = self.env['connect.settings'].get_system_voice()
+        response.say('Call could not be completed. Please try again.', voice=system_voice)
         response.hangup()
         logger.info(f'Added fallback TwiML for cases where transfer fails')
         
@@ -565,7 +569,8 @@ class CallForwardHandler(models.TransientModel):
                 
                 # Play transfer message to external caller, then redirect
                 transfer_response = VoiceResponse()
-                transfer_response.say('Transferring your call now. Please hold.')
+                system_voice = self.env['connect.settings'].get_system_voice()
+                transfer_response.say('Transferring your call now. Please hold.', voice=system_voice)
                 transfer_response.pause(length=1)
                 transfer_response.redirect(extension_url, method='GET')
                 
@@ -594,7 +599,8 @@ class CallForwardHandler(models.TransientModel):
                 
                 # Play transfer message, then redirect to extension
                 transfer_response = VoiceResponse()
-                transfer_response.say('Transferring your call now. Please hold.')
+                system_voice = self.env['connect.settings'].get_system_voice()
+                transfer_response.say('Transferring your call now. Please hold.', voice=system_voice)
                 transfer_response.pause(length=1)
                 transfer_response.redirect(extension_url, method='GET')
                 
@@ -656,7 +662,8 @@ class CallForwardHandler(models.TransientModel):
     def _create_attended_transfer_twiml(self, user, target_call_sid):
         """Create TwiML for attended transfer"""
         response = VoiceResponse()
-        response.say('Setting up consultation call.')
+        system_voice = self.env['connect.settings'].get_system_voice()
+        response.say('Setting up consultation call.', voice=system_voice)
         
         dial = Dial(timeout=30)
         from twilio.twiml.voice_response import Client

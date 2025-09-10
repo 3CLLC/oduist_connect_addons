@@ -145,20 +145,25 @@ class ConnectPlusController(http.Controller):
                             # Use personalized voicemail prompt
                             logger.info(f'Using personalized voicemail for {transfer_recipient.login}')
                             personalized_prompt = pbx_user.render_voicemail_prompt()
-                            response.say(personalized_prompt)
+                            system_voice = http.request.env['connect.settings'].get_system_voice()
+                            response.say(personalized_prompt, voice=system_voice)
                         else:
                             # Fallback to generic message
                             logger.info(f'Using generic voicemail (user has no personalized prompt)')
-                            response.say('Please leave a message after the tone.')
+                            system_voice = http.request.env['connect.settings'].get_system_voice()
+                            response.say('Please leave a message after the tone.', voice=system_voice)
                     else:
                         logger.warning(f'Could not find transfer recipient for personalized voicemail')
-                        response.say('Please leave a message after the tone.')
+                        system_voice = http.request.env['connect.settings'].get_system_voice()
+                        response.say('Please leave a message after the tone.', voice=system_voice)
                 else:
                     logger.warning(f'Could not find original call for personalized voicemail')
-                    response.say('Please leave a message after the tone.')
+                    system_voice = http.request.env['connect.settings'].get_system_voice()
+                    response.say('Please leave a message after the tone.', voice=system_voice)
             except Exception as e:
                 logger.error(f'Error setting up personalized voicemail: {e}')
-                response.say('Please leave a message after the tone.')
+                system_voice = http.request.env['connect.settings'].get_system_voice()
+                response.say('Please leave a message after the tone.', voice=system_voice)
                 
             response.record(maxLength=120, finishOnKey='#', playBeep=True)
         

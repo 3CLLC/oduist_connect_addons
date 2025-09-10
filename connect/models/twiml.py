@@ -210,6 +210,7 @@ class TwiML(models.Model):
 
 response = VoiceResponse()
 user_name = self.env.user.name
-response.say('Welcome {} to the world of Connect!'.format(user_name))
+system_voice = self.env['connect.settings'].get_system_voice()
+response.say('Welcome {} to the world of Connect!'.format(user_name), voice=system_voice)
 self.twiml = response
 """
