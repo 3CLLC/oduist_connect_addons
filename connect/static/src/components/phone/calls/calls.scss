@@ -49,25 +49,15 @@ $color-missed-call-bg: #f8d7da;
       font-size: 15px;
       color: $o-brand-odoo;
 
-      // Increase height for transfer calls that have an extra line
-      &.transfer-call {
-        height: 77px;
-      }
-
       .o_contact_phone {
         margin-left: 5px;
       }
 
       .info-card {
         height: 59px;
-        width: 194px;
+        width: 205px;
         padding-left: 5px;
         position: relative; // Enable absolute positioning for children
-
-        // Increase height for transfer calls that have an extra line
-        &.transfer-call {
-          height: 77px;
-        }
 
         &:hover {
           cursor: pointer;
@@ -81,7 +71,7 @@ $color-missed-call-bg: #f8d7da;
           font-size: 10px;
           font-weight: 600;
           text-transform: uppercase;
-          padding: 1px 2px;
+          padding: 1px 4px;
           border-radius: 10px;
           z-index: 10;
           background-color: #714B67;
