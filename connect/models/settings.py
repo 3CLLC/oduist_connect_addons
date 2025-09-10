@@ -153,6 +153,10 @@ class Settings(models.Model):
         ('Polly.Stephen-Generative', 'Stephen Generative (en-US)')
     ], string='System Voice', default='Polly.Ruth-Generative', required=True,
        help='Voice used for all system prompts (callflow messages, voicemail, transfers, etc.)')
+    pronunciation_rules = fields.Text(
+        string='Pronunciation Rules',
+        help='JSON map of text to pronunciation substitutions (e.g., {"3CHI": "3-chee", "CEO": "C-E-O"})'
+    )
 
     def get_module_version(self, module_name):
         module = (
@@ -559,6 +563,32 @@ class Settings(models.Model):
         voice = self.sudo().get_param('system_voice', 'Polly.Ruth-Generative')
         logger.info(f'get_system_voice() returning: {voice}')
         return voice
+
+    @api.model
+    def process_pronunciation(self, text):
+        """Process text to apply SSML pronunciation substitutions"""
+        if not text:
+            return text
+        
+        try:
+            rules_json = self.sudo().get_param('pronunciation_rules')
+            if not rules_json:
+                return text
+            
+            rules = json.loads(rules_json)
+            processed_text = text
+            
+            # Apply each pronunciation rule
+            for original, pronunciation in rules.items():
+                # Replace with SSML <sub> tag (no <speak> wrapper needed for Twilio)
+                ssml_replacement = f'<sub alias="{pronunciation}">{original}</sub>'
+                processed_text = processed_text.replace(original, ssml_replacement)
+            
+            return processed_text
+            
+        except (json.JSONDecodeError, Exception) as e:
+            logger.warning(f'Error processing pronunciation rules: {e}')
+            return text
 
     @api.model
     def get_client(self):
