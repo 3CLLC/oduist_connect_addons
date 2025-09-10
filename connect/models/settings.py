@@ -144,6 +144,15 @@ class Settings(models.Model):
     company_city = fields.Char(compute="_get_instance_data")
     web_base_url = fields.Char(compute="_get_instance_data", string="Odoo URL")
     latest_versions = fields.Html(readonly=True)
+    # Voice settings
+    system_voice = fields.Selection([
+        ('Danielle-Generative', 'Danielle Generative (en-US)'),
+        ('Joanna-Generative', 'Joanna Generative (en-US)'),
+        ('Matthew-Generative', 'Matthew Generative (en-US)'),
+        ('Ruth-Generative', 'Ruth Generative (en-US)'),
+        ('Stephen-Generative', 'Stephen Generative (en-US)')
+    ], string='System Voice', default='Ruth-Generative', required=True,
+       help='Voice used for all system prompts (callflow messages, voicemail, transfers, etc.)')
 
     def get_module_version(self, module_name):
         module = (
@@ -543,6 +552,11 @@ class Settings(models.Model):
             self.env.registry.clear_cache()
         else:
             self.clear_caches()
+
+    @api.model
+    def get_system_voice(self):
+        """Get the system-wide voice setting for all TwiML say() calls"""
+        return self.sudo().get_param('system_voice', 'Ruth-Generative')
 
     @api.model
     def get_client(self):
