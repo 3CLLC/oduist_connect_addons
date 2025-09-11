@@ -147,6 +147,8 @@ class CallFlow(models.Model):
                     logger.info(f"Call {parent_call.id}: Pattern set to 'direct_call' via gather_action (choice: {choice[0].choice_digits})")
         
         # Play pre-transfer message if configured before rendering chosen extension
+        logger.info(f"GATHER_ACTION: Callflow ID: {self.id}, Name: {self.name}")
+        logger.info(f"GATHER_ACTION: pre_transfer_message field value: '{self.pre_transfer_message}' (type: {type(self.pre_transfer_message)})")
         logger.info(f"GATHER_ACTION: Checking pre_transfer_message - exists: {bool(self.pre_transfer_message)}, message: '{self.pre_transfer_message}'")
         if self.pre_transfer_message:
             logger.info(f"GATHER_ACTION: Creating redirect response with pre-transfer message")
