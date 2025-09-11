@@ -147,7 +147,9 @@ class CallFlow(models.Model):
                     logger.info(f"Call {parent_call.id}: Pattern set to 'direct_call' via gather_action (choice: {choice[0].choice_digits})")
         
         # Play pre-transfer message if configured before rendering chosen extension
+        logger.info(f"GATHER_ACTION: Checking pre_transfer_message - exists: {bool(self.pre_transfer_message)}, message: '{self.pre_transfer_message}'")
         if self.pre_transfer_message:
+            logger.info(f"GATHER_ACTION: Creating redirect response with pre-transfer message")
             response = VoiceResponse()
             system_voice = self.env['connect.settings'].get_system_voice()
             processed_text = self.env['connect.settings'].process_pronunciation(self.pre_transfer_message)
@@ -156,9 +158,11 @@ class CallFlow(models.Model):
             # Then redirect to the chosen extension
             api_url = self.env['connect.settings'].get_param('api_url')
             redirect_url = urljoin(api_url, f'twilio/webhook/exten/{choice[0].exten.id}')
+            logger.info(f"GATHER_ACTION: Redirecting to {redirect_url}")
             response.redirect(redirect_url)
             return response
         else:
+            logger.info(f"GATHER_ACTION: No pre_transfer_message, calling choice[0].exten.render() directly")
             return choice[0].exten.render(request=request)
 
     def render(self, request={}, params={}):
