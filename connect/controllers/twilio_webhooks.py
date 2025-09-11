@@ -137,3 +137,11 @@ class ConnectController(Controller):
         logger.info(f'=== END TRANSFER CONTINUATION WEBHOOK ===')
         
         return f'{res}'
+
+    @route('/twilio/webhook/exten/<int:exten_id>', methods=['POST'], type='http', auth='public', csrf=False)
+    def exten_webhook(self, exten_id, **kw):
+        if not self.check_signature(kw):
+            return '<Response><Say>Invalid Twilio request!</Say></Response>'
+        exten = request.env['connect.exten'].with_user(request.env.ref("connect.user_connect_webhook"))
+        res = exten.browse(exten_id).render(kw)
+        return f'{res}'
