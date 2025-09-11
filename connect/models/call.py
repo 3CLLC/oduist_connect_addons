@@ -1609,7 +1609,7 @@ class Call(models.Model):
                 message.append('dialed users: {}, '.format(', '.join(k.name for k in channel.call.called_users)))
             
             # Use extracted notification method
-            notify_users = self.get_notification_users()
+            notify_users = channel.call.get_notification_users()
 
             # Register call at partner.
             if channel.call.partner:
