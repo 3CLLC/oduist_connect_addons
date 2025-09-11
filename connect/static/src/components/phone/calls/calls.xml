@@ -160,7 +160,7 @@
                                         <!-- Incoming calls -->
                                         <t t-if="call.is_transfer_recipient">
                                             <!-- Incoming transfer recipient -->
-                                            <i class="fa icon-redo2 fa-lg" title="Call transferred"/>
+                                            <i class="fa icon-redo2 fa-lg" title="Transferred call"/>
                                         </t>
                                         <t t-elif="!call.answered_user">
                                             <!-- Nobody answered at all -->
@@ -175,7 +175,7 @@
                                         <!-- Outgoing calls -->
                                         <t t-if="call.transferred_users and call.transferred_users.includes(user)">
                                             <!-- Outgoing transfer recipient -->
-                                            <i class="fa icon-redo2 fa-lg" title="Call transferred"/>
+                                            <i class="fa icon-redo2 fa-lg" title="Transferred call"/>
                                         </t>
                                         <t t-else="">
                                             <!-- Regular outgoing call -->
@@ -198,11 +198,11 @@
                                         </t>
                                         <t t-elif="call.call_pattern === 'ring_group'">
                                             <!-- Regular incoming group call -->
-                                            <span class="call-type-badge ring-group-badge" title="Ring Group Call - Multiple people called">Group</span>
+                                            <span class="call-type-badge ring-group-badge" title="Incoming call to multiple users">Group</span>
                                         </t>
                                         <t t-else="">
                                             <!-- Regular incoming direct call -->
-                                            <span class="call-type-badge direct-call-badge" title="Direct Call - Called one person">Direct</span>
+                                            <span class="call-type-badge direct-call-badge" title="Incoming call to single user">Direct</span>
                                         </t>
                                     </t>
                                     <t t-else="">
