@@ -146,7 +146,24 @@ class CallFlow(models.Model):
                     
                     logger.info(f"Call {parent_call.id}: Pattern set to 'direct_call' via gather_action (choice: {choice[0].choice_digits})")
         
-        return choice[0].exten.render(request=request)
+        response = VoiceResponse()
+
+        # Play pre-transfer message if configured
+        if self.pre_transfer_message:
+            system_voice = self.env['connect.settings'].get_system_voice()
+            processed_text = self.env['connect.settings'].process_pronunciation(self.pre_transfer_message)
+            response.say(processed_text, voice=system_voice, language=self.language)
+
+        # Get the extension's TwiML and combine
+        extension_twiml = choice[0].exten.render(request=request)
+
+        # Parse the extension's response and append its elements to our response
+        from xml.etree import ElementTree as ET
+        extension_root = ET.fromstring(extension_twiml)
+        for element in extension_root:
+            response.append(element)
+
+        return response
 
     def render(self, request={}, params={}):
         self.ensure_one()
