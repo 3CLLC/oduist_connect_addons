@@ -579,12 +579,17 @@ class Settings(models.Model):
             processed_text = text
             has_substitutions = False
             
-            # Apply each pronunciation rule
+            # Apply each pronunciation rule (case-insensitive)
             for original, pronunciation in rules.items():
-                if original in processed_text:
-                    # Replace with SSML <sub> tag
-                    ssml_replacement = f'<sub alias="{pronunciation}">{original}</sub>'
-                    processed_text = processed_text.replace(original, ssml_replacement)
+                # Use regex for case-insensitive replacement
+                import re
+                pattern = re.compile(re.escape(original), re.IGNORECASE)
+                if pattern.search(processed_text):
+                    # Replace with SSML <sub> tag, preserving original case in the sub element
+                    def replace_func(match):
+                        return f'<sub alias="{pronunciation}">{match.group(0)}</sub>'
+                    
+                    processed_text = pattern.sub(replace_func, processed_text)
                     has_substitutions = True
             
             # If we made any substitutions, wrap the entire text in <speak> tags
