@@ -53,16 +53,15 @@
         </field>
     </record>
 
-    <!-- <record id="connect_exten_search" model="ir.ui.view" >
+    <record id="connect_exten_search" model="ir.ui.view" >
         <field name="name">connect_exten_search</field>
         <field name="model">connect.exten</field>
         <field name="arch" type="xml">
             <search>
                 <field name="number"/>
-                <field name="model"/>
-                <filter name="by_model" context="{'group_by': 'model_friendly'}"/>
+                <field name="dst"/>
             </search>
         </field>
-    </record> -->
+    </record>
 
 </odoo>
