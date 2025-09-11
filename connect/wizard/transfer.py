@@ -272,7 +272,7 @@ class CallForwardHandler(models.TransientModel):
                 # External number - use TwiML approach with announcement
                 response = VoiceResponse()
                 system_voice = self.env['connect.settings'].get_system_voice()
-                processed_text = self.env['connect.settings'].process_pronunciation('Connecting your call now.')
+                processed_text = self.env['connect.settings'].process_pronunciation('Transferring your call now.')
                 response.say(processed_text, voice=system_voice)
                 dial = Dial(timeout=30)
                 dial.number(target_number)
@@ -492,7 +492,7 @@ class CallForwardHandler(models.TransientModel):
             # For outgoing calls, return minimal TwiML and handle via bridge method
             response = VoiceResponse()
             system_voice = self.env['connect.settings'].get_system_voice()
-            processed_text = self.env['connect.settings'].process_pronunciation('Transfer initiated. Please stand by.')
+            processed_text = self.env['connect.settings'].process_pronunciation('Transferring your call now.')
             response.say(processed_text, voice=system_voice)
             
             twiml_output = str(response)
@@ -574,7 +574,7 @@ class CallForwardHandler(models.TransientModel):
                 # Play transfer message to external caller, then redirect
                 transfer_response = VoiceResponse()
                 system_voice = self.env['connect.settings'].get_system_voice()
-                processed_text = self.env['connect.settings'].process_pronunciation('Transferring your call now. Please hold.')
+                processed_text = self.env['connect.settings'].process_pronunciation('Transferring your call now.')
                 transfer_response.say(processed_text, voice=system_voice)
                 transfer_response.pause(length=1)
                 transfer_response.redirect(extension_url, method='GET')
@@ -605,7 +605,7 @@ class CallForwardHandler(models.TransientModel):
                 # Play transfer message, then redirect to extension
                 transfer_response = VoiceResponse()
                 system_voice = self.env['connect.settings'].get_system_voice()
-                processed_text = self.env['connect.settings'].process_pronunciation('Transferring your call now. Please hold.')
+                processed_text = self.env['connect.settings'].process_pronunciation('Transferring your call now.')
                 transfer_response.say(processed_text, voice=system_voice)
                 transfer_response.pause(length=1)
                 transfer_response.redirect(extension_url, method='GET')

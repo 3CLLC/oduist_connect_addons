@@ -555,7 +555,7 @@ class User(models.Model):
             else:
                 # Voicemail is completely disabled - generic message and hangup
                 system_voice = self.env['connect.settings'].get_system_voice()
-                processed_text = self.env['connect.settings'].process_pronunciation('Sorry, I could not connect your call. Please try again later. Goodbye!')
+                processed_text = self.env['connect.settings'].process_pronunciation('Sorry, there is no voicemail set up to take your message. Please try again later. Goodbye!')
                 response.say(processed_text, voice=system_voice)
                 response.pause(length=1) 
                 response.hangup()
