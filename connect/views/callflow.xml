@@ -57,6 +57,7 @@
                                     <field name="speech"/>
                                 </list>
                             </field>
+                            <field name="pre_transfer_message"/>
                         </group>
                         <group>
                             <field name="ring_users" widget="many2many_tags"/>

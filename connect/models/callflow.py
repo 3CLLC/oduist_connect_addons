@@ -43,6 +43,10 @@ class CallFlow(models.Model):
     invalid_input_message = fields.Text(default='We received wrong input. Please try again!')
     gather_digits = fields.Integer(required=True, default=1)
     choices = fields.One2many('connect.callflow_choice', 'callflow')
+    pre_transfer_message = fields.Text(
+        string='Pre-Transfer Message',
+        help='Message to play before transferring call. Insert any disclaimer language here.'
+    )
     gather_action_url = fields.Char(compute='_get_gather_action_url')
     ring_users = fields.Many2many('connect.user')
     ring_timeout = fields.Integer(
@@ -221,6 +225,13 @@ class CallFlow(models.Model):
                     client.identity(user.uri)
                     client.parameter(name='CallerName', value=callerId)
                     dial.append(client)
+            
+            # Play pre-transfer message if configured
+            if self.pre_transfer_message:
+                system_voice = self.env['connect.settings'].get_system_voice()
+                processed_text = self.env['connect.settings'].process_pronunciation(self.pre_transfer_message)
+                response.say(processed_text, voice=system_voice, language=self.language)
+            
             response.append(dial)
         else:
             # No ring users set, just send to voicemail if enabled.
