@@ -160,7 +160,7 @@
                                         <!-- Incoming calls -->
                                         <t t-if="call.is_transfer_recipient">
                                             <!-- Incoming transfer recipient -->
-                                            <i class="fa icon-redo2 fa-lg" title="Transferred call"/>
+                                            <i class="fa fa-exchange fa-lg" title="Transferred call"/>
                                         </t>
                                         <t t-elif="!call.answered_user">
                                             <!-- Nobody answered at all -->
@@ -175,7 +175,7 @@
                                         <!-- Outgoing calls -->
                                         <t t-if="call.transferred_users and call.transferred_users.includes(user)">
                                             <!-- Outgoing transfer recipient -->
-                                            <i class="fa icon-redo2 fa-lg" title="Transferred call"/>
+                                            <i class="fa fa-exchange fa-lg" title="Transferred call"/>
                                         </t>
                                         <t t-else="">
                                             <!-- Regular outgoing call -->
