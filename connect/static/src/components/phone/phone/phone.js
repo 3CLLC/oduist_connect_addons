@@ -379,7 +379,7 @@ export class Phone extends Component {
     }
 
     async _busPhoneMakeForward(phoneNumber) {
-        console.log('Forward requested to:', phoneNumber)
+        // console.log('Forward requested to:', phoneNumber)
         
         try {
             // Call backend to perform blind transfer using TwiML
@@ -391,7 +391,7 @@ export class Phone extends Component {
             })
             
             if (result && result.success) {
-                console.log('Forward completed successfully')
+                // console.log('Forward completed successfully')
                 this.notify('Call forwarded successfully', {type: 'success'})
                 // End the current call UI since call was transferred
                 await this.endCall()
@@ -413,7 +413,7 @@ export class Phone extends Component {
     }
 
     async _busPhoneMakeTransfer(phoneNumber) {
-        console.log('Transfer requested to:', phoneNumber)
+        // console.log('Transfer requested to:', phoneNumber)
         
         try {
             // Call backend to perform attended transfer using TwiML
@@ -425,7 +425,7 @@ export class Phone extends Component {
             })
             
             if (result && result.success) {
-                console.log('Transfer initiated successfully')
+                // console.log('Transfer initiated successfully')
                 this.notify('Transfer initiated - you can now speak with the recipient', {type: 'info'})
                 // For attended transfer, we stay on the call until transfer is completed
             } else {
@@ -477,19 +477,19 @@ export class Phone extends Component {
 
         this.setIncomingVolume()
         self.userAgent.on('tokenWillExpire', () => {
-            console.log('tokenWillExpire REFRESH')
+            // console.log('tokenWillExpire REFRESH')
             self.updateToken().then()
         })
 
         self.userAgent.on('error', (error) => {
             if (error.name === 'AccessTokenExpired') {
-                console.log('AccessTokenExpired')
+                // console.log('AccessTokenExpired')
                 self.updateToken().then()
             } else if (error.name === 'AccessTokenInvalid') {
-                console.log('AccessTokenInvalid')
+                // console.log('AccessTokenInvalid')
                 self.bus.trigger('busTraySetException', {exception: error.name})
             } else {
-                console.log(error)
+                // console.log(error)
             }
         })
         let lastTime = (new Date()).getTime()

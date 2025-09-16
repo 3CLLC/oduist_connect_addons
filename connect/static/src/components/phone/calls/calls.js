@@ -122,12 +122,12 @@ export class Calls extends Component {
         const records = await this.orm.call("connect.call", "get_widget_calls", [domain, 20])
         for (const item of records) {
             // Debug ALL calls to see call_pattern values
-            console.log('ALL CALLS DEBUG:', item.id, {
-                call_pattern: item.call_pattern,
-                direction: item.direction,
-                status: item.status,
-                transferred_users: item.transferred_users?.length || 0
-            });
+            // console.log('ALL CALLS DEBUG:', item.id, {
+            //     call_pattern: item.call_pattern,
+            //     direction: item.direction,
+            //     status: item.status,
+            //     transferred_users: item.transferred_users?.length || 0
+            // });
             
             // Check if current user received transfer on this call (needed for template)
             item.user_received_transfer = (
@@ -161,29 +161,29 @@ export class Calls extends Component {
             // (user_received_transfer already set above)
             
             // Debug outgoing transfers
-            if (item.direction === 'outgoing' && item.user_received_transfer) {
-                console.log('OUTGOING TRANSFER DEBUG:', item.id, {
-                    direction: item.direction,
-                    user_received_transfer: item.user_received_transfer,
-                    transferred_users: item.transferred_users,
-                    caller_user: item.caller_user,
-                    called: item.called,
-                    called_users: item.called_users,
-                    partner: item.partner,
-                    current_user: this.user
-                });
+            // if (item.direction === 'outgoing' && item.user_received_transfer) {
+            //     console.log('OUTGOING TRANSFER DEBUG:', item.id, {
+            //         direction: item.direction,
+            //         user_received_transfer: item.user_received_transfer,
+            //         transferred_users: item.transferred_users,
+            //         caller_user: item.caller_user,
+            //         called: item.called,
+            //         called_users: item.called_users,
+            //         partner: item.partner,
+            //         current_user: this.user
+            //     });
                 
-                // Debug what should be displayed
-                const called_users = item.called_users.length > 0 ? item.called_users : false;
-                const expected_caller_id = item.partner || called_users || item.called;
-                const expected_caller = item.called;
-                console.log('EXPECTED DISPLAY:', {
-                    expected_caller_id: expected_caller_id,
-                    expected_caller: expected_caller,
-                    partner: item.partner,
-                    called_users: called_users
-                });
-            }
+            //     // Debug what should be displayed
+            //     const called_users = item.called_users.length > 0 ? item.called_users : false;
+            //     const expected_caller_id = item.partner || called_users || item.called;
+            //     const expected_caller = item.called;
+            //     console.log('EXPECTED DISPLAY:', {
+            //         expected_caller_id: expected_caller_id,
+            //         expected_caller: expected_caller,
+            //         partner: item.partner,
+            //         called_users: called_users
+            //     });
+            // }
             
             // Determine if this user received a transfer
             // If user is in transferred_users, they received a transfer regardless of whether
@@ -195,24 +195,23 @@ export class Calls extends Component {
             )
             
             // Debug logging for call patterns
-            console.log('Call pattern debug:', item.id, {
-                call_pattern: item.call_pattern,
-                direction: item.direction,
-                transferred_users: item.transferred_users?.length || 0
-            });
+            // console.log('Call pattern debug:', item.id, {
+            //     call_pattern: item.call_pattern,
+            //     direction: item.direction,
+            //     transferred_users: item.transferred_users?.length || 0
+            // });
             
             // Debug logging for transfer scenarios only
-            if (item.transferred_users && item.transferred_users.length > 0) {
-                console.log('Transfer call debug:', item.id, {
-                    transferred_users: item.transferred_users,
-                    called_users: item.called_users,
-                    is_transfer_recipient: item.is_transfer_recipient,
-                    current_user: this.user
-                });
-            }
+            // if (item.transferred_users && item.transferred_users.length > 0) {
+            //     console.log('Transfer call debug:', item.id, {
+            //         transferred_users: item.transferred_users,
+            //         called_users: item.called_users,
+            //         is_transfer_recipient: item.is_transfer_recipient,
+            //         current_user: this.user
+            //     });
+            // }
             
-            // For transfer recipients, we want to show the original caller info
-            // instead of the transferring user's info
+            // For transfer recipients, we want to show the original caller info instead of the transferring user's info
             if (item.is_transfer_recipient) {
                 // The original caller info should be in item.caller/item.caller_user
                 // The transferring user info would be in answered_user
@@ -223,7 +222,7 @@ export class Calls extends Component {
                     original_partner: item.partner,
                     transferring_user: item.answered_user
                 }
-                console.log('Transfer recipient display info:', item.id, item.display_caller_info);
+                // console.log('Transfer recipient display info:', item.id, item.display_caller_info);
             } else {
                 item.display_caller_info = {
                     is_transfer: false
