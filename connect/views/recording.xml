@@ -72,10 +72,6 @@
                 <separator/>
                 <filter name="my_recordings" string="My Recordings" 
                         domain="['|', '|', '|', ('caller_user', '=', uid), ('called_users', 'in', uid), ('answered_user', '=', uid), ('transferred_users', 'in', uid)]"/>
-                <filter name="with_recordings" string="Has Recordings" 
-                        domain="[('recordings_count', '&gt;', 0)]"/>
-                <filter name="no_recordings" string="No Recordings" 
-                        domain="[('recordings_count', '=', 0)]"/>
                 <filter name="incoming" string="Incoming" 
                         domain="[('direction', '=', 'incoming')]"/>
                 <filter name="today" string="Today" 
