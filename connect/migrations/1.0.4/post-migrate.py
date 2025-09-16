@@ -40,13 +40,13 @@ def migrate(cr, version):
             enabled_recording += 1
 
         # Update SIP ring timeout to 25 seconds if different
-        if user.sip_ring_timeout != 25:
-            user.sip_ring_timeout = 25
+        if user.client_ring_timeout != 25:
+            user.client_ring_timeout = 25
             updated_timeouts += 1
 
     logger.info(f"ONE-TIME Migration to 1.0.4 completed:")
     logger.info(f"  - Updated {updated_prompts} user voicemail prompts")
     logger.info(f"  - Enabled voicemail for {enabled_voicemail} users")
     logger.info(f"  - Enabled call recording for {enabled_recording} users")
-    logger.info(f"  - Updated SIP ring timeout for {updated_timeouts} users")
+    logger.info(f"  - Updated client ring timeout for {updated_timeouts} users")
     logger.info(f"  - Total users processed: {len(users)}")
