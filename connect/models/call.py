@@ -292,21 +292,21 @@ class Call(models.Model):
         
         # First, check if pattern is already set (from gather_action or transfer)
         if self.call_pattern:
-            logger.info(f"Call {self.id}: Pattern already set to '{self.call_pattern}'")
+            # logger.info(f"Call {self.id}: Pattern already set to '{self.call_pattern}'")
             return self.call_pattern
         
         if not self.channels:
-            logger.info(f"Call {self.id}: No channels yet for pattern detection")
+            # logger.info(f"Call {self.id}: No channels yet for pattern detection")
             return None
             
         # Look at child channels with explicit source tagging
         child_channels = self.channels.filtered(lambda c: c.parent_channel and c.called_pbx_user)
         
         if not child_channels:
-            logger.info(f"Call {self.id}: No child channels with users yet for pattern detection")
+            # logger.info(f"Call {self.id}: No child channels with users yet for pattern detection")
             return None
             
-        logger.info(f"Call {self.id}: Pattern detection with {len(child_channels)} child channels")
+        # logger.info(f"Call {self.id}: Pattern detection with {len(child_channels)} child channels")
         
         # Use explicit tagging instead of counting users
         ring_group_channels = child_channels.filtered(lambda c: c.call_source == 'ring_group')
@@ -314,13 +314,13 @@ class Call(models.Model):
         
         if ring_group_channels:
             pattern = 'ring_group'
-            logger.info(f"Call {self.id}: Detected pattern '{pattern}' from {len(ring_group_channels)} ring_group channels")
+            # logger.info(f"Call {self.id}: Detected pattern '{pattern}' from {len(ring_group_channels)} ring_group channels")
         elif direct_call_channels:
             pattern = 'direct_call'
-            logger.info(f"Call {self.id}: Detected pattern '{pattern}' from {len(direct_call_channels)} direct_call channels")
+            # logger.info(f"Call {self.id}: Detected pattern '{pattern}' from {len(direct_call_channels)} direct_call channels")
         else:
             # Fallback to old logic if no explicit tagging
-            logger.info(f"Call {self.id}: No explicit tagging found, using fallback logic")
+            # logger.info(f"Call {self.id}: No explicit tagging found, using fallback logic")
             return self._detect_call_pattern_fallback()
         
         return pattern
@@ -338,7 +338,7 @@ class Call(models.Model):
                 initial_called_users.add(channel.called_pbx_user.user.id)
         
         pattern = 'ring_group' if len(initial_called_users) > 1 else 'direct_call'
-        logger.info(f"Call {self.id}: Fallback detected pattern '{pattern}' from {len(initial_called_users)} initially called users")
+        # logger.info(f"Call {self.id}: Fallback detected pattern '{pattern}' from {len(initial_called_users)} initially called users")
         return pattern
 
     def _finalize_call_details(self):
@@ -1226,8 +1226,8 @@ class Call(models.Model):
         
         # Check if this is a Dial action webhook with transfer completion data
         if 'DialCallSid' in params and 'DialCallStatus' in params:
-            logger.info(f"Processing Dial action webhook for transfer completion")
-            logger.info(f"DialCallSid: {params.get('DialCallSid')}, DialCallStatus: {params.get('DialCallStatus')}")
+            # logger.info(f"Processing Dial action webhook for transfer completion")
+            # logger.info(f"DialCallSid: {params.get('DialCallSid')}, DialCallStatus: {params.get('DialCallStatus')}")
             
             # For blind transfers, we need to update the existing transfer recipient channel
             # instead of creating a new channel with the DialCallSid
@@ -1251,11 +1251,11 @@ class Call(models.Model):
         dial_status = params.get('DialCallStatus') 
         original_call_sid = params.get('CallSid')  # The original call that initiated transfer
         
-        logger.info(f"=== PROCESSING TRANSFER COMPLETION ===")
-        logger.info(f"Original CallSid: {original_call_sid}")
-        logger.info(f"DialCallSid: {dial_call_sid}")  
-        logger.info(f"DialCallStatus: {dial_status}")
-        logger.info(f"All webhook params: {params}")
+        # logger.info(f"=== PROCESSING TRANSFER COMPLETION ===")
+        # logger.info(f"Original CallSid: {original_call_sid}")
+        # logger.info(f"DialCallSid: {dial_call_sid}")  
+        # logger.info(f"DialCallStatus: {dial_status}")
+        # logger.info(f"All webhook params: {params}")
         
         # Find the original call/channel that initiated the transfer
         original_channel = self.env['connect.channel'].search([('sid', '=', original_call_sid)], limit=1)
@@ -1264,7 +1264,7 @@ class Call(models.Model):
             return
             
         call = original_channel.call
-        logger.info(f"Found call {call.id} for transfer processing")
+        # logger.info(f"Found call {call.id} for transfer processing")
         
         # SIMULTANEOUS_RINGS: For ring groups, find existing recipient channel
         # Ring groups create channels for all users upfront, so recipient channel should exist
@@ -1276,7 +1276,7 @@ class Call(models.Model):
                 potential_recipients = child_channels.filtered(lambda c: c.status in ['no-answer', 'ringing', 'in-progress'])
                 if potential_recipients:
                     recipient_channel = potential_recipients.sorted('id', reverse=True)[0]
-                    logger.info(f"SIMULTANEOUS_RINGS: Using existing channel {recipient_channel.id} as recipient")
+                    # logger.info(f"SIMULTANEOUS_RINGS: Using existing channel {recipient_channel.id} as recipient")
                 else:
                     logger.error(f"SIMULTANEOUS_RINGS: No suitable recipient channels found for ring group call {call.id}")
                     return
@@ -1287,7 +1287,7 @@ class Call(models.Model):
         # DIRECT_CALLS: For direct calls, create missing transfer channel 
         # Direct calls don't create channels for transfer targets, so we need to create them
         elif call.call_pattern == 'direct_call':
-            logger.info(f"DIRECT_CALLS: Creating transfer channel for direct call transfer")
+            # logger.info(f"DIRECT_CALLS: Creating transfer channel for direct call transfer")
             recipient_channel = self._create_missing_transfer_channel(call, dial_call_sid, dial_status, params)
             if recipient_channel:
                 logger.info(f"DIRECT_CALLS: Created missing transfer channel {recipient_channel.id}")
@@ -1301,7 +1301,7 @@ class Call(models.Model):
             return
         
         if recipient_channel and recipient_channel.called_pbx_user:
-            logger.info(f"Transfer recipient identified: {recipient_channel.called_pbx_user.name} (Channel {recipient_channel.id})")
+            # logger.info(f"Transfer recipient identified: {recipient_channel.called_pbx_user.name} (Channel {recipient_channel.id})")
             
             # Map DialCallStatus to proper channel status
             if dial_status == 'completed':
@@ -1320,7 +1320,7 @@ class Call(models.Model):
                 new_status = dial_status
                 duration = int(params.get('DialCallDuration', 0))
             
-            logger.info(f"Updating channel {recipient_channel.id} status from '{recipient_channel.status}' to '{new_status}' with duration {duration}")
+            # logger.info(f"Updating channel {recipient_channel.id} status from '{recipient_channel.status}' to '{new_status}' with duration {duration}")
             
             # Update the existing channel with transfer completion data
             recipient_channel.write({
@@ -1330,12 +1330,12 @@ class Call(models.Model):
             
             # Note: We don't do final processing here because not all channels may be closed yet
             # Final processing will happen when all channels are closed in on_call_status
-            logger.info(f"Transfer completion processed for call {call.id} - final processing will occur when all channels close")
+            # logger.info(f"Transfer completion processed for call {call.id} - final processing will occur when all channels close")
                 
         else:
             logger.warning(f"Could not identify transfer recipient channel or PBX user")
             
-        logger.info(f"=== TRANSFER COMPLETION PROCESSING COMPLETE ===")
+        # logger.info(f"=== TRANSFER COMPLETION PROCESSING COMPLETE ===")
 
     def _create_missing_transfer_channel(self, call, dial_call_sid, dial_status, params):
         """
@@ -1344,8 +1344,8 @@ class Call(models.Model):
         transferred_users field due to transaction timing issues.
         """
         try:
-            logger.info(f"=== CREATING MISSING TRANSFER CHANNEL ===")
-            logger.info(f"Call ID: {call.id}, DialCallSid: {dial_call_sid}")
+            # logger.info(f"=== CREATING MISSING TRANSFER CHANNEL ===")
+            # logger.info(f"Call ID: {call.id}, DialCallSid: {dial_call_sid}")
             
             # Find the parent channel for the transfer
             parent_channel = call.channels.filtered(lambda c: not c.parent_channel)
@@ -1364,15 +1364,15 @@ class Call(models.Model):
                 original_call_sid = params.get('CallSid')  # This is the main call SID
                 if original_call_sid:
                     target_user = call.get_transfer_target(original_call_sid)
-            if target_user:
-                logger.info(f"Using transfer context target: {target_user.login}")
+            # if target_user:
+                # logger.info(f"Using transfer context target: {target_user.login}")
             
             # FALLBACK: Check current call's transferred_users (set during transfer initiation)
             if not target_user:
                 call_with_sudo = call.sudo()  # Ensure we can read the field
                 if call_with_sudo.transferred_users:
                     target_user = call_with_sudo.transferred_users[-1]  # Most recent transfer target
-                    logger.info(f"Using current call transfer target: {target_user.login}")
+                    # logger.info(f"Using current call transfer target: {target_user.login}")
             
             # If we still can't determine the target, fail explicitly
             if not target_user:
@@ -1400,9 +1400,9 @@ class Call(models.Model):
                 'called': pbx_user.uri
             }
             
-            logger.info(f"Creating transfer channel with data: {channel_data}")
+            # logger.info(f"Creating transfer channel with data: {channel_data}")
             recipient_channel = self.env['connect.channel'].create(channel_data)
-            logger.info(f"SUCCESS: Created missing transfer channel {recipient_channel.id} for {target_user.login}")
+            # logger.info(f"SUCCESS: Created missing transfer channel {recipient_channel.id} for {target_user.login}")
             return recipient_channel
             
         except Exception as e:
@@ -1511,8 +1511,8 @@ class Call(models.Model):
         notify_users = []
         
         # Simplified notification logic based on user field states
-        logger.info(f"=== SIMPLIFIED NOTIFICATION LOGIC START ===")
-        logger.info(f"Call state - called_users: {len(self.called_users)}, answered_user: {bool(self.answered_user)}, transferred_users: {len(self.transferred_users)}, completed_by_user: {bool(self.completed_by_user)}")
+        # logger.info(f"=== SIMPLIFIED NOTIFICATION LOGIC START ===")
+        # logger.info(f"Call state - called_users: {len(self.called_users)}, answered_user: {bool(self.answered_user)}, transferred_users: {len(self.transferred_users)}, completed_by_user: {bool(self.completed_by_user)}")
         
         # Rule 1: called_users only (no other fields) → Everyone gets notification
         if (self.called_users and 
@@ -1520,44 +1520,44 @@ class Call(models.Model):
             not self.transferred_users and 
             not self.completed_by_user):
             
-            logger.info(f"RULE 1: called_users only - everyone gets notification")
+            # logger.info(f"RULE 1: called_users only - everyone gets notification")
             for user in self.called_users:
                 connect_user = user.connect_user
                 if connect_user and connect_user[0].missed_calls_notify:
                     notify_users.append(user)
-                    logger.info(f"  ✓ ADDED {user.login} to notifications (called user)")
-                else:
-                    reason = 'no connect_user' if not connect_user else 'notifications disabled'
-                    logger.info(f"  ✗ SKIPPED {user.login} - {reason}")
+                    # logger.info(f"  ✓ ADDED {user.login} to notifications (called user)")
+                # else:
+                #     reason = 'no connect_user' if not connect_user else 'notifications disabled'
+                    # logger.info(f"  ✗ SKIPPED {user.login} - {reason}")
                     
         # Rule 2: called_users + answered_user + completed_by_user + NO transferred_users → No notifications
-        elif (self.called_users and 
-              self.answered_user and 
-              self.completed_by_user and 
-              not self.transferred_users):
+        # elif (self.called_users and 
+        #       self.answered_user and 
+        #       self.completed_by_user and 
+        #       not self.transferred_users):
             
-            logger.info(f"RULE 2: Normal completion (answered + completed, no transfers) - no notifications")
+            # logger.info(f"RULE 2: Normal completion (answered + completed, no transfers) - no notifications")
             
         # Rule 3: transferred_users + NO completed_by_user → Only transferred users get notification
         elif (self.transferred_users and 
               not self.completed_by_user):
             
-            logger.info(f"RULE 3: Missed transfer - only transferred users get notifications")
+            # logger.info(f"RULE 3: Missed transfer - only transferred users get notifications")
             for user in self.transferred_users:
                 connect_user = user.connect_user
                 if connect_user and connect_user[0].missed_calls_notify:
                     notify_users.append(user)
-                    logger.info(f"  ✓ ADDED {user.login} to notifications (missed transfer)")
-                else:
-                    reason = 'no connect_user' if not connect_user else 'notifications disabled'
-                    logger.info(f"  ✗ SKIPPED {user.login} - {reason}")
+                    # logger.info(f"  ✓ ADDED {user.login} to notifications (missed transfer)")
+                # else:
+                #     reason = 'no connect_user' if not connect_user else 'notifications disabled'
+                    # logger.info(f"  ✗ SKIPPED {user.login} - {reason}")
                     
         # Rule 4: Any completed_by_user exists → No notifications
-        elif self.completed_by_user:
-            logger.info(f"RULE 4: Call completed by {self.completed_by_user.login} - no notifications")
+        # elif self.completed_by_user:
+            # logger.info(f"RULE 4: Call completed by {self.completed_by_user.login} - no notifications")
             
-        else:
-            logger.info(f"NO MATCHING RULE: Unhandled call state - no notifications")
+        # else:
+        #     logger.info(f"NO MATCHING RULE: Unhandled call state - no notifications")
         
         return notify_users
 
@@ -1566,12 +1566,12 @@ class Call(models.Model):
             notify_users = []
             
             # COMPREHENSIVE DEBUGGING: Log all user field states
-            logger.info(f"=== REGISTER_CALL DEBUG START - Call {channel.call.id} ===")
-            logger.info(f"Call direction: {channel.call.direction}")
-            logger.info(f"Call status: {channel.call.status}")
-            logger.info(f"Call pattern: {channel.call.call_pattern}")
-            logger.info(f"answered_user: {channel.call.answered_user.login if channel.call.answered_user else 'None'}")
-            logger.info(f"completed_by_user: {channel.call.completed_by_user.login if channel.call.completed_by_user else 'None'}")
+            # logger.info(f"=== REGISTER_CALL DEBUG START - Call {channel.call.id} ===")
+            # logger.info(f"Call direction: {channel.call.direction}")
+            # logger.info(f"Call status: {channel.call.status}")
+            # logger.info(f"Call pattern: {channel.call.call_pattern}")
+            # logger.info(f"answered_user: {channel.call.answered_user.login if channel.call.answered_user else 'None'}")
+            # logger.info(f"completed_by_user: {channel.call.completed_by_user.login if channel.call.completed_by_user else 'None'}")
             
             # Log all user lists with details
             called_users_info = []
@@ -1579,22 +1579,22 @@ class Call(models.Model):
                 connect_user = user.connect_user[0] if user.connect_user else None
                 missed_notify = connect_user.missed_calls_notify if connect_user else False
                 called_users_info.append(f"{user.login}(notify:{missed_notify})")
-            logger.info(f"called_users ({len(channel.call.called_users)}): {called_users_info}")
+            # logger.info(f"called_users ({len(channel.call.called_users)}): {called_users_info}")
             
             transferred_users_info = []
             for user in channel.call.transferred_users:
                 connect_user = user.connect_user[0] if user.connect_user else None
                 missed_notify = connect_user.missed_calls_notify if connect_user else False
                 transferred_users_info.append(f"{user.login}(notify:{missed_notify})")
-            logger.info(f"transferred_users ({len(channel.call.transferred_users)}): {transferred_users_info}")
+            # logger.info(f"transferred_users ({len(channel.call.transferred_users)}): {transferred_users_info}")
             
             # Check for overlaps between called_users and transferred_users
             overlap_users = set(channel.call.called_users.ids) & set(channel.call.transferred_users.ids)
             if overlap_users:
                 overlap_logins = [u.login for u in channel.call.called_users.filtered(lambda x: x.id in overlap_users)]
-                logger.warning(f"OVERLAP DETECTED: Users in both called_users AND transferred_users: {overlap_logins}")
-            else:
-                logger.info("No overlap between called_users and transferred_users")
+                # logger.warning(f"OVERLAP DETECTED: Users in both called_users AND transferred_users: {overlap_logins}")
+            # else:
+            #     logger.info("No overlap between called_users and transferred_users")
             
             # Construct base message from lines
             message = [channel.call.status.capitalize(), channel.call.direction,
@@ -1648,7 +1648,7 @@ class Call(models.Model):
             else:
                 logger.info("No notifications to send")
                 
-            logger.info(f"=== REGISTER_CALL DEBUG END - Call {channel.call.id} ===")
+            # logger.info(f"=== REGISTER_CALL DEBUG END - Call {channel.call.id} ===")
             # Clear temporary transfer context after call processing is complete
             channel.call.clear_transfer_context()
         except Exception as e:

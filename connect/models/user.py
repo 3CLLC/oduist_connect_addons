@@ -221,9 +221,9 @@ class User(models.Model):
         self.ensure_one()
         
         # Debug logging for transfer detection
-        logger.info(f'=== USER RENDER CALLED FOR {self.name} ===')
-        logger.info(f'Request params: Direction={request.get("Direction")}, CallSid={request.get("CallSid")}')
-        logger.info(f'Params: Direction={params.get("Direction")}, ParentCallSid={params.get("ParentCallSid")}')
+        # logger.info(f'=== USER RENDER CALLED FOR {self.name} ===')
+        # logger.info(f'Request params: Direction={request.get("Direction")}, CallSid={request.get("CallSid")}')
+        # logger.info(f'Params: Direction={params.get("Direction")}, ParentCallSid={params.get("ParentCallSid")}')
         
         channel = self.env['connect.channel'].search([('sid', '=', request.get('CallSid'))])
         call = channel.call
@@ -233,13 +233,13 @@ class User(models.Model):
         if is_transfer_redirect:
             original_call = self._find_original_call_for_transfer(request, params)
             if original_call:
-                logger.info(f'TRANSFER DETECTED: Extension {self.exten.number} receiving transfer from call {original_call.id}')
+                # logger.info(f'TRANSFER DETECTED: Extension {self.exten.number} receiving transfer from call {original_call.id}')
                 # Store this user as transfer target for later completion tracking
                 if self.user:
                     original_call.add_transferred_user(self.user)
                     # Store the redirect call SID for completion tracking
                     original_call.store_transfer_context(request.get('CallSid'), self.user)
-                    logger.info(f'Added {self.user.login} as transfer target for call {original_call.id}')
+                    # logger.info(f'Added {self.user.login} as transfer target for call {original_call.id}')
             else:
                 logger.warning(f'Could not find original call for transfer redirect to {self.name}')
         # Check callerid for client calls - but for transfer redirects, use the original external caller
@@ -253,7 +253,7 @@ class User(models.Model):
             # For transfer redirects, the original external caller info is in params
             callerId = params.get('Called', request.get('Called', ''))  # The original external number
             caller_name = None  # No name available for external callers
-            logger.info(f'Transfer redirect: Using external caller ID {callerId}')
+            # logger.info(f'Transfer redirect: Using external caller ID {callerId}')
         else:
             # Normal call logic
             user = self.env['connect.user'].get_user_by_uri(request.get('Caller'))
@@ -370,8 +370,8 @@ class User(models.Model):
                 call and call.direction == 'outgoing' and
                 call.transferred_users
             )
-            if is_transfer_redirect:
-                logger.info(f'Allowing voicemail for transfer redirect call (SID: {request.get("CallSid")}) - target did not answer')
+            # if is_transfer_redirect:
+                # logger.info(f'Allowing voicemail for transfer redirect call (SID: {request.get("CallSid")}) - target did not answer')
         
         debug(self, pretty_xml(response.to_xml()))
         return response.to_xml()
@@ -390,7 +390,7 @@ class User(models.Model):
             
         # If we already have a channel for this SID, it's not a redirect
         if call:
-            logger.info(f'Extension render for existing channel/call - not a redirect')
+            # logger.info(f'Extension render for existing channel/call - not a redirect')
             return False
             
         # Look for recent calls with transferred_users that don't have this SID
@@ -401,10 +401,10 @@ class User(models.Model):
         ])
         
         if recent_transfers:
-            logger.info(f'Found {len(recent_transfers)} recent transfers - this may be a transfer redirect')
+            # logger.info(f'Found {len(recent_transfers)} recent transfers - this may be a transfer redirect')
             return True
             
-        logger.info(f'No indicators of transfer redirect found')
+        # logger.info(f'No indicators of transfer redirect found')
         return False
     
     def _find_original_call_for_transfer(self, request, params):
@@ -425,7 +425,7 @@ class User(models.Model):
                 # Check if this call already has a channel with our SID
                 existing_channel = call.channels.filtered(lambda c: c.sid == call_sid)
                 if not existing_channel:
-                    logger.info(f'Found original call {call.id} for transfer redirect (user in transferred_users)')
+                    # logger.info(f'Found original call {call.id} for transfer redirect (user in transferred_users)')
                     return call
         
         # Strategy 2: Look for recent calls with transferred_users but no completed transfer channels
@@ -445,7 +445,7 @@ class User(models.Model):
                     break
             
             if not transfer_completed:
-                logger.info(f'Found original call {call.id} for transfer redirect (no completed transfers yet)')
+                # logger.info(f'Found original call {call.id} for transfer redirect (no completed transfers yet)')
                 return call
         
         logger.warning(f'Could not find original call for transfer redirect SID {call_sid}')
@@ -509,20 +509,20 @@ class User(models.Model):
     @api.model
     def on_call_action(self, record_id, request):
         """Handle Dial completion for direct calls - prevents voicemail fall-through on completed calls"""
-        logger.info(f'=== USER CALL ACTION HANDLER ===')
-        logger.info(f'User: {record_id}, DialCallStatus: {request.get("DialCallStatus")}')
-        logger.info(f'Request: {json.dumps(request, indent=2)}')
+        # logger.info(f'=== USER CALL ACTION HANDLER ===')
+        # logger.info(f'User: {record_id}, DialCallStatus: {request.get("DialCallStatus")}')
+        # logger.info(f'Request: {json.dumps(request, indent=2)}')
         
         response = VoiceResponse()
         user = self.browse(record_id)
         
         if request.get('DialCallStatus') == 'completed':
             # Call was completed - hang up external caller to prevent voicemail fall-through
-            logger.info(f'Direct call completed - hanging up external caller')
+            # logger.info(f'Direct call completed - hanging up external caller')
             response.hangup()
         else:
             # Call was not completed - provide voicemail if enabled
-            logger.info(f'Direct call not completed (status: {request.get("DialCallStatus")}) - checking voicemail settings')
+            # logger.info(f'Direct call not completed (status: {request.get("DialCallStatus")}) - checking voicemail settings')
             
             if user.voicemail_enabled:
                 # Voicemail is enabled - provide voicemail with appropriate prompt
@@ -537,14 +537,14 @@ class User(models.Model):
                     system_voice = self.env['connect.settings'].get_system_voice()
                     processed_text = self.env['connect.settings'].process_pronunciation(personalized_prompt)
                     response.say(processed_text, voice=system_voice)
-                    logger.info(f'Using personalized voicemail prompt for {user.name}')
+                    # logger.info(f'Using personalized voicemail prompt for {user.name}')
                 else:
                     # User has voicemail enabled but no personalized prompt - use generic with name
                     generic_prompt = f'{user.name} is not available. Please leave a message.'
                     system_voice = self.env['connect.settings'].get_system_voice()
                     processed_text = self.env['connect.settings'].process_pronunciation(generic_prompt)
                     response.say(processed_text, voice=system_voice)
-                    logger.info(f'Using generic voicemail prompt for {user.name}')
+                    # logger.info(f'Using generic voicemail prompt for {user.name}')
                 
                 response.record(
                     maxLength=120,
@@ -559,7 +559,7 @@ class User(models.Model):
                 response.say(processed_text, voice=system_voice)
                 response.pause(length=1) 
                 response.hangup()
-                logger.info(f'Voicemail disabled for {user.name} - using generic hangup message')
+                # logger.info(f'Voicemail disabled for {user.name} - using generic hangup message')
         
         debug(self, pretty_xml(str(response)))
         return response

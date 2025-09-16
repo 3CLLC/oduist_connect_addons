@@ -123,10 +123,10 @@ class Channel(models.Model):
                 return
             else:
                 logger.info(f"VALID WEBHOOK: CallSid {call_sid} SequenceNumber {sequence_number} CallStatus {call_status} - processing status update")
-        else:
-            logger.info(f"NEW CALLSID: No existing channel found for {call_sid}, sequence_number: {sequence_number}")
+        # else:
+            # logger.info(f"NEW CALLSID: No existing channel found for {call_sid}, sequence_number: {sequence_number}")
         if channel:
-            logger.info(f"FOUND EXISTING CHANNEL {channel.id} for SID {params['CallSid']}")
+            # logger.info(f"FOUND EXISTING CHANNEL {channel.id} for SID {params['CallSid']}")
             # Update channel data.
             data = {
                 'called': params.get('Called'),
@@ -158,7 +158,7 @@ class Channel(models.Model):
             # No longer need complex failure detection logic
         # Channel not found by sid, create it.
         else:
-            logger.info(f"CREATING NEW CHANNEL for SID {params['CallSid']}")
+            # logger.info(f"CREATING NEW CHANNEL for SID {params['CallSid']}")
             data = {
                 'sid': params['CallSid'],
                 'called': params.get('Called'),
@@ -173,17 +173,17 @@ class Channel(models.Model):
             if channel.parent_sid:
                 parent_channel = self.search([('sid', '=', channel.parent_sid)])
                 data['parent_channel'] = parent_channel.id
-                logger.info(f"NEW CHANNEL: Found parent via parent_sid: {parent_channel.id}")
+                # logger.info(f"NEW CHANNEL: Found parent via parent_sid: {parent_channel.id}")
             elif params.get('ParentCallSid'):
                 parent_channel = self.search([('sid', '=', params.get('ParentCallSid'))])
                 if parent_channel:
                     data['parent_channel'] = parent_channel.id
                     data['parent_sid'] = parent_channel.parent_channel.sid
-                    logger.info(f"NEW CHANNEL: Found parent via ParentCallSid: {parent_channel.id}")
+                    # logger.info(f"NEW CHANNEL: Found parent via ParentCallSid: {parent_channel.id}")
                 else:
                     logger.warning(f"NEW CHANNEL: ParentCallSid {params.get('ParentCallSid')} not found in existing channels!")
-            else:
-                logger.info(f"NEW CHANNEL: No parent relationship")
+            # else:
+                # logger.info(f"NEW CHANNEL: No parent relationship")
             # Find caller user
             caller_pbx_user = None
             called_pbx_user = None
@@ -196,9 +196,9 @@ class Channel(models.Model):
                 called_pbx_user = self.env['connect.user'].get_user_by_uri(params['Called'])
                 data['called_pbx_user'] = called_pbx_user.id
                 data['called_user'] = called_pbx_user.user.id
-                logger.info(f"NEW CHANNEL: Called PBX User = {called_pbx_user.name if called_pbx_user else 'None'}")
-            else:
-                logger.info(f"NEW CHANNEL: No Called user in params")
+                # logger.info(f"NEW CHANNEL: Called PBX User = {called_pbx_user.name if called_pbx_user else 'None'}")
+            # else:
+                # logger.info(f"NEW CHANNEL: No Called user in params")
             # Find the partner
             if caller_pbx_user and params.get('Called'):
                 # User makes outgoing call.
@@ -231,32 +231,32 @@ class Channel(models.Model):
                             called_pbx_user_obj = self.env['connect.user'].browse(data['called_pbx_user'])
                             if called_pbx_user_obj.user and called_pbx_user_obj.user in parent_channel_obj.call.transferred_users:
                                 data['call_source'] = 'transfer'
-                                logger.info(f"NEW CHANNEL: Tagged as 'transfer' (user {called_pbx_user_obj.user.login} is a transfer recipient)")
+                                # logger.info(f"NEW CHANNEL: Tagged as 'transfer' (user {called_pbx_user_obj.user.login} is a transfer recipient)")
                             else:
                                 data['call_source'] = 'ring_group'
-                                logger.info(f"NEW CHANNEL: Tagged as 'ring_group' (user {called_pbx_user_obj.user.login} answered ring group, not a transfer recipient)")
+                                # logger.info(f"NEW CHANNEL: Tagged as 'ring_group' (user {called_pbx_user_obj.user.login} answered ring group, not a transfer recipient)")
                         else:
                             data['call_source'] = 'ring_group'
-                            logger.info(f"NEW CHANNEL: Tagged as 'ring_group' based on call pattern")
+                            # logger.info(f"NEW CHANNEL: Tagged as 'ring_group' based on call pattern")
                     elif parent_channel_obj.call.call_pattern == 'direct_call':
                         # For direct calls, child channels are either initial direct calls, transfers, or external dials
                         if parent_channel_obj.call.transferred_users:
                             # Call has transfers - new child channels are likely transfers
                             data['call_source'] = 'transfer'
-                            logger.info(f"NEW CHANNEL: Tagged as 'transfer' (call has {len(parent_channel_obj.call.transferred_users)} transferred users)")
+                            # logger.info(f"NEW CHANNEL: Tagged as 'transfer' (call has {len(parent_channel_obj.call.transferred_users)} transferred users)")
                         elif (params.get('Called', '').startswith('client:') or 
                               params.get('Called', '').startswith('sip:')):
                             data['call_source'] = 'direct_call'  # Initial direct call
-                            logger.info(f"NEW CHANNEL: Tagged as 'direct_call' based on call pattern")
+                            # logger.info(f"NEW CHANNEL: Tagged as 'direct_call' based on call pattern")
                         else:
                             data['call_source'] = 'external_dial'  # External number
-                            logger.info(f"NEW CHANNEL: Tagged as 'external_dial' for external number")
-                else:
-                    logger.info(f"NEW CHANNEL: No call pattern set yet, will be tagged later")
+                            # logger.info(f"NEW CHANNEL: Tagged as 'external_dial' for external number")
+                # else:
+                    # logger.info(f"NEW CHANNEL: No call pattern set yet, will be tagged later")
             else:
                 # This is a parent channel (inbound call)
                 data['call_source'] = None  # Will be set when pattern is determined
-                logger.info(f"NEW CHANNEL: Parent channel, no source tagging needed")
+                # logger.info(f"NEW CHANNEL: Parent channel, no source tagging needed")
             
             channel = self.with_context(tracking_disable=True).create(data)
             debug(self, 'Channel %s created.' % channel.id)
@@ -270,7 +270,7 @@ class Channel(models.Model):
                 if parent_channel.call and parent_channel.call.direction == 'outgoing':
                     # This is the external call leg for an outgoing call - store it for transfers
                     parent_channel.call.store_external_call_leg(params['CallSid'])
-                    logger.info(f"STORED external call leg {params['CallSid']} for outgoing call {parent_channel.call.id}")
+                    # logger.info(f"STORED external call leg {params['CallSid']} for outgoing call {parent_channel.call.id}")
         return channel
 
     def transfer(self, to=None):
@@ -404,8 +404,8 @@ class Channel(models.Model):
             
             # Check if this is the transfer recipient hanging up
             if call_sid == transfer_recipient_sid:
-                logger.info(f'=== TRANSFER RECIPIENT HANGUP DETECTED ===')
-                logger.info(f'Transfer recipient {call_sid} hung up - terminating external call {external_call_sid}')
+                # logger.info(f'=== TRANSFER RECIPIENT HANGUP DETECTED ===')
+                # logger.info(f'Transfer recipient {call_sid} hung up - terminating external call {external_call_sid}')
                 
                 # Terminate the external call
                 client = self.env['connect.settings'].get_client()
@@ -415,9 +415,9 @@ class Channel(models.Model):
                     if external_call.status in ['in-progress', 'ringing']:
                         # Terminate the external call
                         hangup_result = client.calls(external_call_sid).update(status='completed')
-                        logger.info(f'Successfully terminated external call {external_call_sid}: {hangup_result.status}')
-                    else:
-                        logger.info(f'External call {external_call_sid} already ended ({external_call.status})')
+                        # logger.info(f'Successfully terminated external call {external_call_sid}: {hangup_result.status}')
+                    # else:
+                        # logger.info(f'External call {external_call_sid} already ended ({external_call.status})')
                         
                 except Exception as e:
                     logger.error(f'Failed to terminate external call {external_call_sid}: {e}')
@@ -428,11 +428,11 @@ class Channel(models.Model):
                     if '_external_termination' in current_context:
                         del current_context['_external_termination']
                         call.transfer_context = current_context
-                        logger.info(f'Cleaned up external termination context for call {call.id}')
+                        # logger.info(f'Cleaned up external termination context for call {call.id}')
                 except Exception as e:
                     logger.error(f'Failed to clean up termination context: {e}')
                     
-                logger.info(f'=== EXTERNAL CALL TERMINATION COMPLETE ===')
+                # logger.info(f'=== EXTERNAL CALL TERMINATION COMPLETE ===')
                 
         except Exception as e:
             logger.error(f'Error handling external call termination: {e}', exc_info=True)

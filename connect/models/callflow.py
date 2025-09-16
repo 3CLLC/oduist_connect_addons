@@ -71,7 +71,7 @@ class CallFlow(models.Model):
 
     @api.model
     def gather_action(self, flow_id, request):
-        logger.info(f"GATHER_ACTION: Called for callflow {flow_id} - Digits: '{request.get('Digits')}', SpeechResult: '{request.get('SpeechResult')}'")
+        # logger.info(f"GATHER_ACTION: Called for callflow {flow_id} - Digits: '{request.get('Digits')}', SpeechResult: '{request.get('SpeechResult')}'")
         callflow = self.browse(flow_id)
         choice = callflow.choices.filtered(
             lambda x: x.choice_digits == request.get('Digits') or
@@ -101,7 +101,7 @@ class CallFlow(models.Model):
                             'source': 'gather_timeout'
                         })
                         
-                        logger.info(f"Call {parent_call.id}: Pattern set to 'ring_group' via gather timeout (no user input) - expecting {expected_count} channels")
+                        # logger.info(f"Call {parent_call.id}: Pattern set to 'ring_group' via gather timeout (no user input) - expecting {expected_count} channels")
                 
                 # Render ring_users if available, otherwise fallback  
                 return callflow.render(request=request, params={'gather_timeout': True})
@@ -136,7 +136,7 @@ class CallFlow(models.Model):
                         'source': 'gather_action'
                     })
                     
-                    logger.info(f"Call {parent_call.id}: Pattern set to 'ring_group' via gather_action (choice: {choice[0].choice_digits}) - expecting {expected_count} channels")
+                    # logger.info(f"Call {parent_call.id}: Pattern set to 'ring_group' via gather_action (choice: {choice[0].choice_digits}) - expecting {expected_count} channels")
                 else:
                     # This choice leads to a direct extension
                     parent_call.call_pattern = 'direct_call'
@@ -144,14 +144,14 @@ class CallFlow(models.Model):
                     # Clear any existing ring_group webhook expectations since pattern changed
                     parent_call._clear_webhook_expectations('ring_group')
                     
-                    logger.info(f"Call {parent_call.id}: Pattern set to 'direct_call' via gather_action (choice: {choice[0].choice_digits})")
+                    # logger.info(f"Call {parent_call.id}: Pattern set to 'direct_call' via gather_action (choice: {choice[0].choice_digits})")
         
         # Play pre-transfer message if configured before rendering chosen extension
-        logger.info(f"GATHER_ACTION: Callflow ID: {callflow.id}, Name: {callflow.name}")
-        logger.info(f"GATHER_ACTION: pre_transfer_message field value: '{callflow.pre_transfer_message}' (type: {type(callflow.pre_transfer_message)})")
-        logger.info(f"GATHER_ACTION: Checking pre_transfer_message - exists: {bool(callflow.pre_transfer_message)}, message: '{callflow.pre_transfer_message}'")
+        # logger.info(f"GATHER_ACTION: Callflow ID: {callflow.id}, Name: {callflow.name}")
+        # logger.info(f"GATHER_ACTION: pre_transfer_message field value: '{callflow.pre_transfer_message}' (type: {type(callflow.pre_transfer_message)})")
+        # logger.info(f"GATHER_ACTION: Checking pre_transfer_message - exists: {bool(callflow.pre_transfer_message)}, message: '{callflow.pre_transfer_message}'")
         if callflow.pre_transfer_message:
-            logger.info(f"GATHER_ACTION: Creating redirect response with pre-transfer message")
+            # logger.info(f"GATHER_ACTION: Creating redirect response with pre-transfer message")
             response = VoiceResponse()
             system_voice = self.env['connect.settings'].get_system_voice()
             processed_text = self.env['connect.settings'].process_pronunciation(callflow.pre_transfer_message)
@@ -160,11 +160,11 @@ class CallFlow(models.Model):
             # Then redirect to the chosen extension
             api_url = self.env['connect.settings'].get_param('api_url')
             redirect_url = urljoin(api_url, f'twilio/webhook/exten/{choice[0].exten.id}')
-            logger.info(f"GATHER_ACTION: Redirecting to {redirect_url}")
+            # logger.info(f"GATHER_ACTION: Redirecting to {redirect_url}")
             response.redirect(redirect_url)
             return response
         else:
-            logger.info(f"GATHER_ACTION: No pre_transfer_message, calling choice[0].exten.render() directly")
+            # logger.info(f"GATHER_ACTION: No pre_transfer_message, calling choice[0].exten.render() directly")
             return choice[0].exten.render(request=request)
 
     def render(self, request={}, params={}):
@@ -191,10 +191,10 @@ class CallFlow(models.Model):
             )
             self.get_prompt_message(gather)
             response.append(gather)
-            logger.info(f"CALLFLOW RENDER: Created gather element - action={self.gather_action_url}, timeout={self.gather_timeout}")
+            # logger.info(f"CALLFLOW RENDER: Created gather element - action={self.gather_action_url}, timeout={self.gather_timeout}")
         elif self.prompt_message and not gather_timeout:
             self.get_prompt_message(response)
-            logger.info(f"CALLFLOW RENDER: Created prompt without gather (gather_input={self.gather_input})")
+            # logger.info(f"CALLFLOW RENDER: Created prompt without gather (gather_input={self.gather_input})")
         # Add ringall users
         if self.ring_users:
             # NOTE: Do NOT set call pattern here during initial render
@@ -276,7 +276,7 @@ class CallFlow(models.Model):
         debug(self, 'Saying prompt message for Call Flow {}'.format(self.name))
         system_voice = self.env['connect.settings'].get_system_voice()
         processed_text = self.env['connect.settings'].process_pronunciation(self.prompt_message)
-        logger.info(f'CallFlow get_prompt_message: Using voice={system_voice}, language={self.language}')
+        # logger.info(f'CallFlow get_prompt_message: Using voice={system_voice}, language={self.language}')
         response.say(processed_text, language=self.language, voice=system_voice)
 
     def get_gather_invalid_input_message(self, response):

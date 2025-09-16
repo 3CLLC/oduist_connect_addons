@@ -66,8 +66,8 @@ class ConnectPlusController(http.Controller):
     @http.route('/connect/<string:extension_number>', methods=['GET', 'POST'], type='http', auth='public', csrf=False)
     def extension_handler(self, extension_number, **kw):
         """Handle extension calls via direct URL"""
-        logger.info(f'Extension handler called for extension {extension_number}')
-        logger.info(f'Parameters: {kw}')
+        # logger.info(f'Extension handler called for extension {extension_number}')
+        # logger.info(f'Parameters: {kw}')
         
         # Find the extension
         exten = http.request.env['connect.exten'].sudo().search([('number', '=', extension_number)])
@@ -86,11 +86,11 @@ class ConnectPlusController(http.Controller):
         dial_call_sid = kw.get('DialCallSid')  # SID of the transfer recipient call
         original_call_sid = kw.get('CallSid')  # SID of the redirect call
         
-        logger.info(f'=== DIAL COMPLETE HANDLER ===')
-        logger.info(f'DialCallStatus: {dial_status}')
-        logger.info(f'DialCallSid: {dial_call_sid}')
-        logger.info(f'CallSid: {original_call_sid}')
-        logger.info(f'All params: {kw}')
+        # logger.info(f'=== DIAL COMPLETE HANDLER ===')
+        # logger.info(f'DialCallStatus: {dial_status}')
+        # logger.info(f'DialCallSid: {dial_call_sid}')
+        # logger.info(f'CallSid: {original_call_sid}')
+        # logger.info(f'All params: {kw}')
         
         # Process transfer completion to update original call fields
         try:
@@ -102,11 +102,11 @@ class ConnectPlusController(http.Controller):
         
         if dial_status == 'completed':
             # Call was answered successfully - hang up the redirect call
-            logger.info('Transfer answered - hanging up redirect call')
+            # logger.info('Transfer answered - hanging up redirect call')
             response.hangup()
         else:
             # Call was not answered - provide personalized voicemail
-            logger.info(f'Transfer not answered (status: {dial_status}) - providing personalized voicemail')
+            # logger.info(f'Transfer not answered (status: {dial_status}) - providing personalized voicemail')
             
             # Try to find the target user for personalized voicemail
             # Reuse the same logic from completion processing
@@ -133,7 +133,7 @@ class ConnectPlusController(http.Controller):
                     # FINAL FALLBACK: Use most recent transferred user
                     if not transfer_recipient and original_call.transferred_users:
                         transfer_recipient = original_call.transferred_users[-1]  # Most recent transfer
-                        logger.info(f'Using fallback for voicemail: most recent transferred user {transfer_recipient.login}')
+                        # logger.info(f'Using fallback for voicemail: most recent transferred user {transfer_recipient.login}')
                     
                     if transfer_recipient:
                         # Get the PBX user for voicemail prompt
@@ -143,14 +143,14 @@ class ConnectPlusController(http.Controller):
                         
                         if pbx_user and pbx_user.voicemail_enabled and pbx_user.voicemail_prompt:
                             # Use personalized voicemail prompt
-                            logger.info(f'Using personalized voicemail for {transfer_recipient.login}')
+                            # logger.info(f'Using personalized voicemail for {transfer_recipient.login}')
                             personalized_prompt = pbx_user.render_voicemail_prompt()
                             system_voice = http.request.env['connect.settings'].get_system_voice()
                             processed_text = http.request.env['connect.settings'].process_pronunciation(personalized_prompt)
                             response.say(processed_text, voice=system_voice)
                         else:
                             # Fallback to generic message
-                            logger.info(f'Using generic voicemail (user has no personalized prompt)')
+                            # logger.info(f'Using generic voicemail (user has no personalized prompt)')
                             system_voice = http.request.env['connect.settings'].get_system_voice()
                             processed_text = http.request.env['connect.settings'].process_pronunciation('Please leave a message after the tone.')
                             response.say(processed_text, voice=system_voice)
@@ -183,8 +183,8 @@ class ConnectPlusController(http.Controller):
         dial_call_sid = webhook_params.get('DialCallSid')
         original_call_sid = webhook_params.get('CallSid')
         
-        logger.info(f'=== PROCESSING EXTENSION REDIRECT COMPLETION ===')
-        logger.info(f'Original CallSid: {original_call_sid}, DialCallSid: {dial_call_sid}, Status: {dial_call_status}')
+        # logger.info(f'=== PROCESSING EXTENSION REDIRECT COMPLETION ===')
+        # logger.info(f'Original CallSid: {original_call_sid}, DialCallSid: {dial_call_sid}, Status: {dial_call_status}')
         
         # Find original call using transfer context or recent transfers
         original_call = self._find_original_call_for_redirect_completion(original_call_sid, dial_call_sid)
@@ -192,7 +192,7 @@ class ConnectPlusController(http.Controller):
             logger.warning(f'Could not find original call for redirect completion')
             return
             
-        logger.info(f'Found original call {original_call.id} for transfer completion processing')
+        # logger.info(f'Found original call {original_call.id} for transfer completion processing')
         
         # Find transfer recipient user from transfer context
         # Try multiple SID patterns from the webhook
@@ -211,24 +211,24 @@ class ConnectPlusController(http.Controller):
             parent_call_sid = webhook_params.get('ParentCallSid')
             if parent_call_sid:
                 transfer_recipient = original_call.get_transfer_target(parent_call_sid)
-                logger.info(f'Trying ParentCallSid {parent_call_sid} for transfer recipient')
+                # logger.info(f'Trying ParentCallSid {parent_call_sid} for transfer recipient')
         
         # FINAL FALLBACK: If still no recipient found, use the most recent transferred user
         # This handles cases where transfer context lookup fails but we know transfers occurred
         if not transfer_recipient and original_call.transferred_users:
             transfer_recipient = original_call.transferred_users[-1]  # Most recent transfer
-            logger.info(f'Using fallback: most recent transferred user {transfer_recipient.login}')
+            # logger.info(f'Using fallback: most recent transferred user {transfer_recipient.login}')
         
         if not transfer_recipient:
             logger.warning(f'Could not find transfer recipient for completion processing - no transferred_users found')
             return
             
-        logger.info(f'Transfer recipient: {transfer_recipient.login}')
+        # logger.info(f'Transfer recipient: {transfer_recipient.login}')
         
         # Update completion fields based on transfer outcome
         if dial_call_status == 'completed':
             # Transfer successful - recipient answered
-            logger.info(f'Transfer completed successfully - setting completed_by_user to {transfer_recipient.login}')
+            # logger.info(f'Transfer completed successfully - setting completed_by_user to {transfer_recipient.login}')
             original_call.completed_by_user = transfer_recipient
             
             # Create/update a channel record for the transfer recipient to ensure proper field population
@@ -239,13 +239,13 @@ class ConnectPlusController(http.Controller):
             
         else:
             # Transfer failed - recipient didn't answer
-            logger.info(f'Transfer failed (status: {dial_call_status}) - leaving completed_by_user empty for missed call notification')
+            # logger.info(f'Transfer failed (status: {dial_call_status}) - leaving completed_by_user empty for missed call notification')
             # Don't set completed_by_user - this will trigger missed call notifications
             
             # Create/update a channel record for the failed transfer
             self._create_or_update_transfer_channel(original_call, dial_call_sid, transfer_recipient, dial_call_status, webhook_params)
         
-        logger.info(f'=== EXTENSION REDIRECT COMPLETION PROCESSING COMPLETE ===')
+        # logger.info(f'=== EXTENSION REDIRECT COMPLETION PROCESSING COMPLETE ===')
     
     def _find_original_call_for_redirect_completion(self, original_call_sid, dial_call_sid):
         """Find the original call that initiated this transfer redirect"""
@@ -262,7 +262,7 @@ class ConnectPlusController(http.Controller):
                 context_str = str(call.transfer_context)
                 if ((original_call_sid and original_call_sid in context_str) or 
                     (dial_call_sid and dial_call_sid in context_str)):
-                    logger.info(f'Found original call {call.id} via transfer context')
+                    # logger.info(f'Found original call {call.id} via transfer context')
                     return call
         
         # Strategy 2: Look for recent calls with transferred_users
@@ -274,7 +274,7 @@ class ConnectPlusController(http.Controller):
         ], limit=5)
         
         if recent_transfers:
-            logger.info(f'Found {len(recent_transfers)} recent transfer calls - using most recent')
+            # logger.info(f'Found {len(recent_transfers)} recent transfer calls - using most recent')
             return recent_transfers[0]
             
         return None
@@ -344,14 +344,14 @@ class ConnectPlusController(http.Controller):
         This addresses the issue where external callers go to voicemail when internal users hang up completed calls.
         """
         try:
-            logger.info(f'=== TERMINATING EXTERNAL CALLS AFTER TRANSFER COMPLETION ===')
-            logger.info(f'Call: {call.id}, Transfer recipient: {transfer_recipient.login}')
+            # logger.info(f'=== TERMINATING EXTERNAL CALLS AFTER TRANSFER COMPLETION ===')
+            # logger.info(f'Call: {call.id}, Transfer recipient: {transfer_recipient.login}')
             
             # For outgoing calls, find and terminate the external call leg
             if call.direction == 'outgoing':
                 external_call_sid = call.get_external_call_leg()
                 if external_call_sid:
-                    logger.info(f'Found external call leg: {external_call_sid}')
+                    # logger.info(f'Found external call leg: {external_call_sid}')
                     
                     # Get Twilio client
                     client = http.request.env['connect.settings'].sudo().get_client()
@@ -362,7 +362,7 @@ class ConnectPlusController(http.Controller):
                         if external_call.status in ['in-progress', 'ringing']:
                             # External call is still active - set up termination logic
                             # Instead of immediate termination, we'll modify the call to hang up when transfer recipient hangs up
-                            logger.info(f'External call {external_call_sid} is active - will terminate when transfer recipient hangs up')
+                            # logger.info(f'External call {external_call_sid} is active - will terminate when transfer recipient hangs up')
                             
                             # Store termination context for later processing
                             self._store_external_call_termination_context(call, external_call_sid, transfer_recipient_sid)
@@ -379,14 +379,14 @@ class ConnectPlusController(http.Controller):
                 external_channels = call.channels.filtered(lambda c: not c.parent_channel and not c.caller_pbx_user)
                 if external_channels:
                     external_channel = external_channels[0]
-                    logger.info(f'Found external caller channel: {external_channel.sid}')
+                    # logger.info(f'Found external caller channel: {external_channel.sid}')
                     
                     # Store termination context for later processing  
                     self._store_external_call_termination_context(call, external_channel.sid, transfer_recipient_sid)
                 else:
                     logger.info(f'No external caller channel found for incoming call {call.id}')
             
-            logger.info(f'=== EXTERNAL CALL TERMINATION SETUP COMPLETE ===')
+            # logger.info(f'=== EXTERNAL CALL TERMINATION SETUP COMPLETE ===')
             
         except Exception as e:
             logger.error(f'Failed to set up external call termination: {e}', exc_info=True)
@@ -401,7 +401,7 @@ class ConnectPlusController(http.Controller):
                 'setup_time': http.request.env.cr.now()
             }
             call.transfer_context = current_context
-            logger.info(f'Stored external termination context: {external_call_sid} -> {transfer_recipient_sid}')
+            # logger.info(f'Stored external termination context: {external_call_sid} -> {transfer_recipient_sid}')
         except Exception as e:
             logger.error(f'Failed to store external termination context: {e}')
 

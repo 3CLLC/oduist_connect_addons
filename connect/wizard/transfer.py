@@ -112,7 +112,7 @@ class CallForwardHandler(models.TransientModel):
                 'extension_format': f'ext{extension_number}',
             }
             
-            logger.info(f'Client identity debug: {debug_info}')
+            # logger.info(f'Client identity debug: {debug_info}')
             return debug_info
             
         except Exception as e:
@@ -143,7 +143,7 @@ class CallForwardHandler(models.TransientModel):
                 'queue_time': getattr(call, 'queue_time', 'N/A')
             }
             
-            logger.info(f'Call state debug for {session_id}: {debug_info}')
+            # logger.info(f'Call state debug for {session_id}: {debug_info}')
             return debug_info
             
         except Exception as e:
@@ -154,57 +154,57 @@ class CallForwardHandler(models.TransientModel):
         """
         Convert extension numbers to Twilio Client identities with enhanced debugging
         """
-        logger.info(f'Resolving phone number: {phone_number}')
+        # logger.info(f'Resolving phone number: {phone_number}')
         
         # Check if it's a numeric extension (internal)
         if phone_number.isdigit() and len(phone_number) <= 4:
             # Get detailed debug info
             debug_info = self.debug_user_identity(phone_number)
-            logger.info(f'Extension debug info: {debug_info}')
+            # logger.info(f'Extension debug info: {debug_info}')
             
             # Look up the extension in connect.exten
             extension = self.env['connect.exten'].search([('number', '=', phone_number)], limit=1)
-            logger.info(f'Found extension: {extension.name if extension else "None"}')
+            # logger.info(f'Found extension: {extension.name if extension else "None"}')
             
             if extension and extension.dst and extension.dst._name == 'connect.user':
                 user = extension.dst
-                logger.info(f'Extension points to user: {user.name} (URI: {user.uri})')
+                # logger.info(f'Extension points to user: {user.name} (URI: {user.uri})')
                 
                 # Try multiple identity formats based on your system
                 possible_identities = []
                 
                 if hasattr(user, 'username') and user.username:
                     possible_identities.append(f'client:{user.username}')
-                    logger.info(f'Added username identity: client:{user.username}')
+                    # logger.info(f'Added username identity: client:{user.username}')
                 
                 if hasattr(user, 'uri') and user.uri:
                     # Extract client identity from URI (remove @domain part)
                     client_identity = user.uri.split('@')[0] if '@' in user.uri else user.uri
                     possible_identities.append(f'client:{client_identity}')
-                    logger.info(f'Added URI-based identity: client:{client_identity}')
+                    # logger.info(f'Added URI-based identity: client:{client_identity}')
                 
                 # Try user ID format
                 possible_identities.append(f'client:user{user.id}')
-                logger.info(f'Added user ID identity: client:user{user.id}')
+                # logger.info(f'Added user ID identity: client:user{user.id}')
                 
                 # For now, let's use the URI-based one (what we were using before)
                 if user.uri:
                     client_identity = user.uri.split('@')[0] if '@' in user.uri else user.uri
                     client_target = f'client:{client_identity}'
-                    logger.info(f'Extension {phone_number} resolved to Twilio Client: {client_target}')
-                    logger.info(f'Other possible identities to try: {possible_identities}')
+                    # logger.info(f'Extension {phone_number} resolved to Twilio Client: {client_target}')
+                    # logger.info(f'Other possible identities to try: {possible_identities}')
                     return client_target
                 else:
                     # Fallback client identity based on extension
                     client_target = f'client:user{phone_number}'
-                    logger.info(f'No URI found, using fallback client identity: {client_target}')
+                    # logger.info(f'No URI found, using fallback client identity: {client_target}')
                     return client_target
             
             else:
                 logger.warning(f'Extension {phone_number} not found or not pointing to user')
                 # Still try as client identity - maybe it's a valid extension
                 client_target = f'client:user{phone_number}'
-                logger.info(f'Using fallback client identity: {client_target}')
+                # logger.info(f'Using fallback client identity: {client_target}')
                 return client_target
         else:
             # External phone number - ensure it has proper formatting
@@ -216,7 +216,7 @@ class CallForwardHandler(models.TransientModel):
                 except:
                     phone_number = f'+1{phone_number}'  # Fallback to US
             
-            logger.info(f'External number resolved to: {phone_number}')
+            # logger.info(f'External number resolved to: {phone_number}')
             return phone_number
 
     def _execute_blind_transfer(self, client, session_id, target_number, call_id=None):
@@ -224,7 +224,7 @@ class CallForwardHandler(models.TransientModel):
         Execute immediate blind transfer using extension render method (like ElevenLabs)
         """
         try:
-            logger.info(f'Executing blind transfer to {target_number} for session {session_id}')
+            # logger.info(f'Executing blind transfer to {target_number} for session {session_id}')
             
             if target_number.startswith('client:'):
                 # Extract extension number from client identity
@@ -243,10 +243,10 @@ class CallForwardHandler(models.TransientModel):
                 response.append(dial)
                 
                 twiml_str = str(response)
-                logger.info(f'Generated external transfer TwiML: {twiml_str}')
+                # logger.info(f'Generated external transfer TwiML: {twiml_str}')
                 
                 result = client.calls(session_id).update(twiml=twiml_str)
-                logger.info(f'External transfer executed: {result}')
+                # logger.info(f'External transfer executed: {result}')
                 return True
             
         except Exception as e:
@@ -258,7 +258,7 @@ class CallForwardHandler(models.TransientModel):
         Execute attended transfer using extension render method
         """
         try:
-            logger.info(f'Executing attended transfer to {target_number} for session {session_id}')
+            # logger.info(f'Executing attended transfer to {target_number} for session {session_id}')
             
             if target_number.startswith('client:'):
                 # Extract extension number from client identity
@@ -279,10 +279,10 @@ class CallForwardHandler(models.TransientModel):
                 response.append(dial)
                 
                 twiml_str = str(response)
-                logger.info(f'Generated external attended transfer TwiML: {twiml_str}')
+                # logger.info(f'Generated external attended transfer TwiML: {twiml_str}')
                 
                 result = client.calls(session_id).update(twiml=twiml_str)
-                logger.info(f'External attended transfer executed: {result}')
+                # logger.info(f'External attended transfer executed: {result}')
                 return True
                 
         except Exception as e:
@@ -313,7 +313,7 @@ class CallForwardHandler(models.TransientModel):
                 ], limit=1)
                 
                 if extension:
-                    logger.info(f'Found extension {extension.number} for client identity {client_identity}')
+                    # logger.info(f'Found extension {extension.number} for client identity {client_identity}')
                     return extension.number
             
             logger.warning(f'Could not find extension for client identity: {client_identity}')
@@ -328,27 +328,27 @@ class CallForwardHandler(models.TransientModel):
         Execute transfer with different behavior for blind vs attended transfers
         """
         try:
-            logger.info(f'=== STARTING {transfer_type.upper()} TRANSFER ===')
-            logger.info(f'Session ID: {session_id}')
-            logger.info(f'Target Extension: {extension_number}')
+            # logger.info(f'=== STARTING {transfer_type.upper()} TRANSFER ===')
+            # logger.info(f'Session ID: {session_id}')
+            # logger.info(f'Target Extension: {extension_number}')
             
             # Debug call state BEFORE transfer
-            logger.info('=== CALL STATE BEFORE TRANSFER ===')
+            # logger.info('=== CALL STATE BEFORE TRANSFER ===')
             pre_transfer_state = self.debug_current_call_state(session_id)
             
             # Check if this is a child call with a parent
             parent_call_sid = pre_transfer_state.get('parent_call_sid')
             if parent_call_sid and parent_call_sid != 'N/A':
-                logger.info(f'=== DETECTED PARENT CALL: {parent_call_sid} ===')
-                logger.info('Current call is a child call - will update parent call instead')
+                # logger.info(f'=== DETECTED PARENT CALL: {parent_call_sid} ===')
+                # logger.info('Current call is a child call - will update parent call instead')
                 target_call_sid = parent_call_sid
                 
                 # Debug the parent call state
-                logger.info('=== PARENT CALL STATE ===')
+                # logger.info('=== PARENT CALL STATE ===')
                 parent_state = self.debug_current_call_state(parent_call_sid)
             else:
-                logger.info('=== NO PARENT CALL DETECTED ===')
-                logger.info('Will update current call')
+                # logger.info('=== NO PARENT CALL DETECTED ===')
+                # logger.info('Will update current call')
                 target_call_sid = session_id
             
             # Find the extension
@@ -363,8 +363,8 @@ class CallForwardHandler(models.TransientModel):
                 return False
                 
             user = extension.dst
-            logger.info(f'Extension {extension_number} points to user: {user.name}')
-            logger.info(f'User URI: {user.uri}')
+            # logger.info(f'Extension {extension_number} points to user: {user.name}')
+            # logger.info(f'User URI: {user.uri}')
             
             # Track the transfer in the call record
             if user.user:
@@ -373,14 +373,14 @@ class CallForwardHandler(models.TransientModel):
                     call = None
                     if call_id:
                         call = self.env['connect.call'].sudo().browse(call_id)
-                        logger.info(f'Using provided call_id {call_id} for transfer tracking')
+                        # logger.info(f'Using provided call_id {call_id} for transfer tracking')
                     
                     if not call or not call.exists():
                         # Fallback: Find call by looking up channel with session_id
                         channel = self.env['connect.channel'].sudo().search([('sid', '=', session_id)], limit=1)
                         if channel and channel.call:
                             call = channel.call
-                            logger.info(f'Found call {call.id} via channel lookup for session {session_id}')
+                            # logger.info(f'Found call {call.id} via channel lookup for session {session_id}')
                         else:
                             logger.warning(f'No call found for session {session_id}')
                             
@@ -389,21 +389,21 @@ class CallForwardHandler(models.TransientModel):
                                 parent_channel = self.env['connect.channel'].sudo().search([('sid', '=', parent_call_sid)], limit=1)
                                 if parent_channel and parent_channel.call:
                                     call = parent_channel.call
-                                    logger.info(f'Found call {call.id} via parent channel lookup for {parent_call_sid}')
+                                    # logger.info(f'Found call {call.id} via parent channel lookup for {parent_call_sid}')
                                 else:
                                     logger.warning(f'No call found for parent {parent_call_sid} either')
                     
                     if call and call.exists():
                         try:
                             call.add_transferred_user(user.user)
-                            logger.info(f'Added transfer target {user.user.login} to call {call.id}')
+                            # logger.info(f'Added transfer target {user.user.login} to call {call.id}')
                         except Exception as e:
                             logger.warning(f'Could not add transfer user (concurrent update): {e}')
                         
                         try:
                             # Store transfer context for webhook processing (use target_call_sid as key)
                             call.store_transfer_context(target_call_sid, user.user)
-                            logger.info(f'Stored transfer context for call {target_call_sid} -> {user.user.login}')
+                            # logger.info(f'Stored transfer context for call {target_call_sid} -> {user.user.login}')
                         except Exception as e:
                             logger.warning(f'Could not store transfer context: {e}')
                         
@@ -411,7 +411,7 @@ class CallForwardHandler(models.TransientModel):
                             # EXPLICIT PATTERN TAGGING: Ensure call pattern is set for transfers
                             if not call.call_pattern:
                                 call.call_pattern = 'direct_call'  # Transfers only happen from direct calls
-                                logger.info(f'Call {call.id}: Set pattern to direct_call during transfer')
+                                # logger.info(f'Call {call.id}: Set pattern to direct_call during transfer')
                         except Exception as e:
                             logger.warning(f'Could not set call pattern: {e}')
                     else:
@@ -423,54 +423,54 @@ class CallForwardHandler(models.TransientModel):
             is_outgoing_call = False
             if call and call.exists():
                 is_outgoing_call = call.direction == 'outgoing'
-                logger.info(f'=== CALL ANALYSIS FOR TRANSFER ===')
-                logger.info(f'Call ID: {call.id}, Direction: {call.direction} (outgoing={is_outgoing_call})')
-                logger.info(f'Called: {call.called}, Caller: {call.caller}')
-                logger.info(f'Call Pattern: {call.call_pattern}')
-                logger.info(f'Number of channels: {len(call.channels)}')
+                # logger.info(f'=== CALL ANALYSIS FOR TRANSFER ===')
+                # logger.info(f'Call ID: {call.id}, Direction: {call.direction} (outgoing={is_outgoing_call})')
+                # logger.info(f'Called: {call.called}, Caller: {call.caller}')
+                # logger.info(f'Call Pattern: {call.call_pattern}')
+                # logger.info(f'Number of channels: {len(call.channels)}')
                 
                 # Log current user context for debugging user-specific issues
                 current_user = self.env.user
-                logger.info(f'Current Odoo user: {current_user.login} (ID: {current_user.id})')
+                # logger.info(f'Current Odoo user: {current_user.login} (ID: {current_user.id})')
                 
                 # See if we can identify which connect.user is involved
                 connect_user = self.env['connect.user'].search([('user', '=', current_user.id)], limit=1)
-                if connect_user:
-                    logger.info(f'Connect user: {connect_user.name} (URI: {connect_user.uri})')
-                else:
-                    logger.info('No connect.user found for current Odoo user')
+                # if connect_user:
+                    # logger.info(f'Connect user: {connect_user.name} (URI: {connect_user.uri})')
+                # else:
+                    # logger.info('No connect.user found for current Odoo user')
             
             # Use unified direct extension redirect approach for ALL transfers
             if transfer_type == 'blind':
-                logger.info('=== USING UNIFIED DIRECT EXTENSION REDIRECT FOR ALL TRANSFERS ===')
+                # logger.info('=== USING UNIFIED DIRECT EXTENSION REDIRECT FOR ALL TRANSFERS ===')
                 # Use direct extension redirect - simpler and more reliable for both incoming and outgoing
                 result = self._execute_extension_redirect(client, target_call_sid, user, call, is_outgoing_call)
-                logger.info(f'Extension redirect result: {result}')
+                # logger.info(f'Extension redirect result: {result}')
                 return result
             else:
-                logger.info('=== USING TWIML TRANSFER METHOD FOR ATTENDED TRANSFER ===')
+                # logger.info('=== USING TWIML TRANSFER METHOD FOR ATTENDED TRANSFER ===')
                 
                 # Only use TwiML for attended transfers (which are rare)
                 twiml_str = self._create_attended_transfer_twiml(user, target_call_sid)
-                logger.info('Created ATTENDED transfer TwiML (conference-based)')
+                # logger.info('Created ATTENDED transfer TwiML (conference-based)')
                 
-                logger.info(f'=== GENERATED TWIML ===')
-                logger.info(f'TwiML: {twiml_str}')
-                logger.info(f'TwiML Length: {len(twiml_str)} characters')
+                # logger.info(f'=== GENERATED TWIML ===')
+                # logger.info(f'TwiML: {twiml_str}')
+                # logger.info(f'TwiML Length: {len(twiml_str)} characters')
                 
                 # Update the CORRECT call (parent if exists, otherwise current)
-                logger.info('=== UPDATING CALL WITH TWIML ===')
-                logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
+                # logger.info('=== UPDATING CALL WITH TWIML ===')
+                # logger.info(f'About to update call {target_call_sid} ({"parent" if parent_call_sid else "current"})')
                 
                 result = client.calls(target_call_sid).update(twiml=twiml_str)
                 
-                logger.info(f'=== CALL UPDATE RESULT ===')
-                logger.info(f'Update result: {result}')
+                # logger.info(f'=== CALL UPDATE RESULT ===')
+                # logger.info(f'Update result: {result}')
                 
                 # For attended transfer, we need to handle the consultation phase
-                logger.info('=== ATTENDED TRANSFER: Keeping original recipient connected ===')
+                # logger.info('=== ATTENDED TRANSFER: Keeping original recipient connected ===')
                     
-                logger.info(f'=== TRANSFER COMPLETE ===')
+                # logger.info(f'=== TRANSFER COMPLETE ===')
                 return True
             
         except Exception as e:
@@ -483,12 +483,12 @@ class CallForwardHandler(models.TransientModel):
         For outgoing calls, use bridge transfer approach instead of TwiML modification
         This prevents external party disconnection by not modifying the original call flow
         """
-        logger.info(f'=== CREATING BLIND TRANSFER TWIML ===')
-        logger.info(f'Target user: {user.name} (URI: {user.uri})')
-        logger.info(f'Outgoing call provided: {"Yes" if outgoing_call else "No"}')
+        # logger.info(f'=== CREATING BLIND TRANSFER TWIML ===')
+        # logger.info(f'Target user: {user.name} (URI: {user.uri})')
+        # logger.info(f'Outgoing call provided: {"Yes" if outgoing_call else "No"}')
         
         if outgoing_call and outgoing_call.direction == 'outgoing':
-            logger.info(f'=== OUTGOING CALL DETECTED - USING BRIDGE TRANSFER ===')
+            # logger.info(f'=== OUTGOING CALL DETECTED - USING BRIDGE TRANSFER ===')
             # For outgoing calls, return minimal TwiML and handle via bridge method
             response = VoiceResponse()
             system_voice = self.env['connect.settings'].get_system_voice()
@@ -496,11 +496,11 @@ class CallForwardHandler(models.TransientModel):
             response.say(processed_text, voice=system_voice)
             
             twiml_output = str(response)
-            logger.info(f'Generated minimal TwiML for bridge transfer: {twiml_output}')
+            # logger.info(f'Generated minimal TwiML for bridge transfer: {twiml_output}')
             return twiml_output
         
         # For incoming calls, use the standard TwiML approach
-        logger.info(f'=== INCOMING CALL - USING STANDARD TWIML TRANSFER ===')
+        # logger.info(f'=== INCOMING CALL - USING STANDARD TWIML TRANSFER ===')
         response = VoiceResponse()
         system_voice = self.env['connect.settings'].get_system_voice()
         processed_text = self.env['connect.settings'].process_pronunciation('Transferring your call now.')
@@ -508,11 +508,11 @@ class CallForwardHandler(models.TransientModel):
         
         # Get the base URL for webhook callbacks
         api_url = self.env['connect.settings'].sudo().get_param('api_url')
-        logger.info(f'API URL base: {api_url}')
+        # logger.info(f'API URL base: {api_url}')
         
         # Create action URL with transfer context for continuation logic
         action_url = urljoin(api_url, f'twilio/webhook/transfer_continuation')
-        logger.info(f'Transfer continuation URL: {action_url}')
+        # logger.info(f'Transfer continuation URL: {action_url}')
         
         # Create the transfer dial with action continuation
         dial = Dial(
@@ -520,28 +520,28 @@ class CallForwardHandler(models.TransientModel):
             action=action_url,
             method='POST'
         )
-        logger.info(f'Created Dial with 30s timeout and action URL')
+        # logger.info(f'Created Dial with 30s timeout and action URL')
         
         from twilio.twiml.voice_response import Client
         client_elem = Client()
         client_elem.identity(user.uri)
         dial.append(client_elem)
-        logger.info(f'Added client identity to dial: {user.uri}')
+        # logger.info(f'Added client identity to dial: {user.uri}')
         
         response.append(dial)
-        logger.info(f'Appended dial element to response')
+        # logger.info(f'Appended dial element to response')
         
         # Critical: Add continuation TwiML that executes AFTER the dial completes
         system_voice = self.env['connect.settings'].get_system_voice()
         processed_text = self.env['connect.settings'].process_pronunciation('Call could not be completed. Please try again.')
         response.say(processed_text, voice=system_voice)
         response.hangup()
-        logger.info(f'Added fallback TwiML for cases where transfer fails')
+        # logger.info(f'Added fallback TwiML for cases where transfer fails')
         
         twiml_output = str(response)
-        logger.info(f'=== GENERATED TWIML (LENGTH: {len(twiml_output)}) ===')
-        logger.info(f'TwiML Content: {twiml_output}')
-        logger.info(f'=== END TWIML GENERATION ===')
+        # logger.info(f'=== GENERATED TWIML (LENGTH: {len(twiml_output)}) ===')
+        # logger.info(f'TwiML Content: {twiml_output}')
+        # logger.info(f'=== END TWIML GENERATION ===')
         
         return twiml_output
 
@@ -551,10 +551,10 @@ class CallForwardHandler(models.TransientModel):
         This is simpler and provides better UX than conference transfers.
         """
         try:
-            logger.info(f'=== EXECUTING UNIFIED EXTENSION REDIRECT ===')
-            logger.info(f'Call SID: {call_sid}')
-            logger.info(f'Transfer to: {user.name} (Extension: {user.exten.number})')
-            logger.info(f'Is outgoing call: {is_outgoing_call}')
+            # logger.info(f'=== EXECUTING UNIFIED EXTENSION REDIRECT ===')
+            # logger.info(f'Call SID: {call_sid}')
+            # logger.info(f'Transfer to: {user.name} (Extension: {user.exten.number})')
+            # logger.info(f'Is outgoing call: {is_outgoing_call}')
             
             # Create the redirect URL
             api_url = self.env['connect.settings'].sudo().get_param('api_url')
@@ -562,14 +562,14 @@ class CallForwardHandler(models.TransientModel):
             
             if is_outgoing_call:
                 # OUTGOING CALL: Redirect the external call leg, hang up the original caller
-                logger.info('=== OUTGOING CALL REDIRECT ===')
+                # logger.info('=== OUTGOING CALL REDIRECT ===')
                 
                 external_call_sid = call.get_external_call_leg()
                 if not external_call_sid:
                     logger.error('Could not find external call leg for outgoing transfer')
                     return False
                 
-                logger.info(f'Redirecting external call {external_call_sid} to extension {user.exten.number}')
+                # logger.info(f'Redirecting external call {external_call_sid} to extension {user.exten.number}')
                 
                 # Play transfer message to external caller, then redirect
                 transfer_response = VoiceResponse()
@@ -583,7 +583,7 @@ class CallForwardHandler(models.TransientModel):
                 redirect_result = client.calls(external_call_sid).update(
                     twiml=str(transfer_response)
                 )
-                logger.info(f'External call redirect result: {redirect_result.status}')
+                # logger.info(f'External call redirect result: {redirect_result.status}')
                 
                 # Check if original caller is still active before hanging up
                 try:
@@ -592,15 +592,15 @@ class CallForwardHandler(models.TransientModel):
                         hangup_response = VoiceResponse()
                         hangup_response.hangup()
                         original_result = client.calls(call_sid).update(twiml=str(hangup_response))
-                        logger.info(f'Original caller disconnected: {original_result.status}')
-                    else:
-                        logger.info(f'Original caller already ended ({original_call_status.status}), no need to hang up')
+                        # logger.info(f'Original caller disconnected: {original_result.status}')
+                    # else:
+                        # logger.info(f'Original caller already ended ({original_call_status.status}), no need to hang up')
                 except Exception as e:
                     logger.warning(f'Could not check/update original caller status: {e}')
             else:
                 # INCOMING CALL: Redirect the current call directly to extension
-                logger.info('=== INCOMING CALL REDIRECT ===')
-                logger.info(f'Redirecting current call {call_sid} to extension {user.exten.number}')
+                # logger.info('=== INCOMING CALL REDIRECT ===')
+                # logger.info(f'Redirecting current call {call_sid} to extension {user.exten.number}')
                 
                 # Play transfer message, then redirect to extension
                 transfer_response = VoiceResponse()
@@ -614,12 +614,12 @@ class CallForwardHandler(models.TransientModel):
                 redirect_result = client.calls(call_sid).update(
                     twiml=str(transfer_response)
                 )
-                logger.info(f'Call redirect result: {redirect_result.status}')
+                # logger.info(f'Call redirect result: {redirect_result.status}')
             
-            logger.info(f'=== EXTENSION REDIRECT COMPLETE ===')
-            logger.info(f'Caller will ring {user.name} directly at extension {user.exten.number}')
-            logger.info(f'If no answer, caller will reach voicemail automatically')
-            logger.info(f'Missed call notifications will be sent to {user.name}')
+            # logger.info(f'=== EXTENSION REDIRECT COMPLETE ===')
+            # logger.info(f'Caller will ring {user.name} directly at extension {user.exten.number}')
+            # logger.info(f'If no answer, caller will reach voicemail automatically')
+            # logger.info(f'Missed call notifications will be sent to {user.name}')
             
             return True
             
@@ -634,18 +634,18 @@ class CallForwardHandler(models.TransientModel):
         """
         try:
             if not call or call.direction != 'outgoing':
-                logger.info('Not an outgoing call, no original caller to extract')
+                # logger.info('Not an outgoing call, no original caller to extract')
                 return None
             
             # For outgoing calls, the external party info should be in the called field or channels
             if call.called and call.called.startswith('+'):
-                logger.info(f'Found original caller from call.called: {call.called}')
+                # logger.info(f'Found original caller from call.called: {call.called}')
                 return call.called
             
             # Look for external number in channels
             for channel in call.channels:
                 if channel.technical_direction == 'outbound-dial' and channel.called and channel.called.startswith('+'):
-                    logger.info(f'Found original caller from outbound-dial channel: {channel.called}')
+                    # logger.info(f'Found original caller from outbound-dial channel: {channel.called}')
                     return channel.called
             
             logger.warning('Could not extract original caller from outgoing call')
@@ -661,7 +661,7 @@ class CallForwardHandler(models.TransientModel):
             log_message = f'{transfer_type.capitalize()} transfer to {phone_number} for session {session_id}'
             if call_id:
                 log_message += f' (Call ID: {call_id})'
-            logger.info(f'Transfer logged: {log_message}')
+            # logger.info(f'Transfer logged: {log_message}')
         except Exception as e:
             logger.warning(f'Could not log transfer attempt: {e}')
 
@@ -710,7 +710,7 @@ class CallForwardHandler(models.TransientModel):
         For successful transfers, update completion status.
         For failed transfers, route the external caller to the transfer target's voicemail.
         """
-        logger.info(f'=== HANDLING TRANSFER CONTINUATION ===')
+        # logger.info(f'=== HANDLING TRANSFER CONTINUATION ===')
         
         call_sid = webhook_params.get('CallSid')
         dial_call_status = webhook_params.get('DialCallStatus')
@@ -725,7 +725,7 @@ class CallForwardHandler(models.TransientModel):
             return response
         
         call = call_channel.call
-        logger.info(f'Found call {call.id} for transfer continuation')
+        # logger.info(f'Found call {call.id} for transfer continuation')
         
         # If transfer recipient answered (DialCallStatus: completed), update completion status
         if dial_call_status == 'completed' and call.transferred_users:
@@ -746,7 +746,7 @@ class CallForwardHandler(models.TransientModel):
                 if transfer_recipient:
                     call.completed_by_user = transfer_recipient
                     call.transfer_completion_handled = True
-                    logger.info(f'Call {call.id}: Transfer completed - set completed_by_user to {transfer_recipient.login}')
+                    # logger.info(f'Call {call.id}: Transfer completed - set completed_by_user to {transfer_recipient.login}')
                 else:
                     logger.warning(f'Could not find user with login {transfer_recipient_login}')
             else:
@@ -754,7 +754,7 @@ class CallForwardHandler(models.TransientModel):
                 if call.transferred_users:
                     call.completed_by_user = call.transferred_users[0]
                     call.transfer_completion_handled = True
-                    logger.info(f'Call {call.id}: Transfer completed - set completed_by_user to {call.transferred_users[0].login} (fallback)')
+                    # logger.info(f'Call {call.id}: Transfer completed - set completed_by_user to {call.transferred_users[0].login} (fallback)')
         
         response = VoiceResponse()
         response.hangup()

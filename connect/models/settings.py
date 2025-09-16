@@ -561,7 +561,7 @@ class Settings(models.Model):
     def get_system_voice(self):
         """Get the system-wide voice setting for all TwiML say() calls"""
         voice = self.sudo().get_param('system_voice', 'Polly.Ruth-Generative')
-        logger.info(f'get_system_voice() returning: {voice}')
+        # logger.info(f'get_system_voice() returning: {voice}')
         return voice
 
     @api.model
@@ -596,7 +596,7 @@ class Settings(models.Model):
             if has_substitutions:
                 processed_text = f'<speak>{processed_text}</speak>'
             
-            logger.info(f'Pronunciation processing: "{text}" -> "{processed_text}"')
+            # logger.info(f'Pronunciation processing: "{text}" -> "{processed_text}"')
             return processed_text
             
         except (json.JSONDecodeError, Exception) as e:
@@ -623,7 +623,7 @@ class Settings(models.Model):
                 return
             
             # Build Say with substitutions using Twilio's sub() method
-            logger.info(f'Building Say with substitutions for: {text}')
+            # logger.info(f'Building Say with substitutions for: {text}')
             say = response.say("", voice=voice, language=language)  # Empty say to start
             
             remaining_text = text
