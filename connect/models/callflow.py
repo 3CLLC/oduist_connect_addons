@@ -37,9 +37,7 @@ class CallFlow(models.Model):
         ], required=True, default='dtmf speech')
     gather_timeout = fields.Integer(string='Timeout', default=5)
     gather_hints = fields.Char('Hints', default='This is a phrase I expect to hear, department name or extension number')
-    prompt_message = fields.Text('Prompt Message',
-        default='Welcome to our company! Please enter the extension number of person '
-                'you wish to dial or wait 5 seconds till I start connecting your call')
+    prompt_message = fields.Text('Prompt Message')
     invalid_input_message = fields.Text(default='We received wrong input. Please try again!')
     gather_digits = fields.Integer(required=True, default=1)
     choices = fields.One2many('connect.callflow_choice', 'callflow')
@@ -51,13 +49,13 @@ class CallFlow(models.Model):
     ring_users = fields.Many2many('connect.user')
     ring_timeout = fields.Integer(
         string='Ring Timeout', 
-        default=30, 
+        default=25, 
         required=True,
         help='How long to ring users (in seconds) before going to voicemail'
     )
-    record_calls = fields.Boolean()
+    record_calls = fields.Boolean(default=True)
     voicemail_prompt = fields.Text()
-    voicemail_enabled = fields.Boolean()
+    voicemail_enabled = fields.Boolean(default=True)
     # fallback_extension
 
     def create_extension(self):

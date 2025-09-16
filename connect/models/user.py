@@ -43,7 +43,7 @@ class User(models.Model):
                                   required=True, default='client')
     ring_second = fields.Selection(selection=[('sip', 'SIP'),('client', 'Client')],
                                   required=False, default='sip')
-    sip_ring_timeout = fields.Integer(required=True, default=30, string='SIP ring timeout')
+    sip_ring_timeout = fields.Integer(required=True, default=25, string='SIP ring timeout')
     client_ring_timeout = fields.Integer(required=True, default=10, string='Web client ring timeout')
     callerid_number = fields.Many2one('connect.number', ondelete='restrict') # TODO: Remove after 1.0
     outgoing_callerid = fields.Many2one('connect.outgoing_callerid', ondelete='set null',
