@@ -36,8 +36,8 @@ class User(models.Model):
     password = fields.Char(groups="connect.group_connect_admin,connect.group_connect_user")
     uri = fields.Char('SIP URI', compute='_get_sip_uri', store=True)
     record_calls = fields.Boolean(default=True)
-    voicemail_enabled = fields.Boolean()
-    voicemail_prompt = fields.Text(default="Hello, this is {{user.name}}. I'm unable to take your call right now. Please leave a message after the tone.")
+    voicemail_enabled = fields.Boolean(default=True)
+    voicemail_prompt = fields.Text(default="{{user.name}} is unable to take your call right now. Please leave a message after the tone.")
     application = fields.Many2one('connect.twiml')
     ring_first = fields.Selection(selection=[('sip', 'SIP'),('client', 'Client')],
                                   required=True, default='client')
@@ -48,7 +48,7 @@ class User(models.Model):
     callerid_number = fields.Many2one('connect.number', ondelete='restrict') # TODO: Remove after 1.0
     outgoing_callerid = fields.Many2one('connect.outgoing_callerid', ondelete='set null',
         domain=['|',('status', '=', 'validated'),('callerid_type', '=', 'number')])
-    missed_calls_notify = fields.Boolean(default=False, help='Notify user on missed calls.')
+    missed_calls_notify = fields.Boolean(default=True, help='Notify user on missed calls.')
     call_popup_is_enabled = fields.Boolean(default=True, string='Enable Call Notifications', help='Enable notifications for call events (transfers, status updates, etc.)')
     call_popup_is_sticky = fields.Boolean(default=False, string='Sticky Call Notifications', help='Require manual dismissal of call notifications?')
     greeting_message = fields.Char()
