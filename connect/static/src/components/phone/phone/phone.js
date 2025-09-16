@@ -403,10 +403,12 @@ export class Phone extends Component {
             console.error('Forward error:', error)
             this.notify('Forward failed: ' + error.message, {type: 'warning'})
         } finally {
-            // Reset UI state
-            this.state.isDialingPanel = true
+            // Reset UI state to default keypad view
+            this.state.isDialingPanel = false
+            this.state.isKeypad = true
             this.state.isForward = false
             this.state.isContacts = false
+            this.state.isContactList = false
         }
     }
 
@@ -434,10 +436,12 @@ export class Phone extends Component {
             console.error('Transfer error:', error)
             this.notify('Transfer failed: ' + error.message, {type: 'warning'})
         } finally {
-            // Reset UI state
-            this.state.isDialingPanel = true
+            // Reset UI state to default keypad view
+            this.state.isDialingPanel = false
+            this.state.isKeypad = true
             this.state.isTransfer = false
             this.state.isContacts = false
+            this.state.isContactList = false
         }
     }
 
