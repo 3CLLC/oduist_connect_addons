@@ -24,19 +24,35 @@
         <field name="perm_unlink" eval="0"/>
     </record>
 
-    <!-- Call -->
-    <!-- COMMENTED OUT: Restrictive visibility - now using default search filters instead
+    <!-- Call - General calls and recordings access rule for regular users -->
     <record id="connect_call_user_rule" model="ir.rule">
-        <field name="name">connect_call_user</field>
+        <field name="name">Connect Call: User Access</field>
         <field name="model_id" ref="connect.model_connect_call"/>
         <field name="groups" eval="[(6, 0, [ref('group_connect_user')])]"/>
-        <field name="domain_force">['|', '|', '|', ('caller_user', '=', user.id), ('called_users', '=', user.id), ('answered_user', '=', user.id), ('transferred_users', '=', user.id)]</field>
+        <field name="domain_force">['|', '|', '|', ('caller_user', '=', user.id), ('called_users', 'in', [user.id]), ('answered_user', '=', user.id), ('transferred_users', 'in', [user.id])]</field>
         <field name="perm_read" eval="1"/>
         <field name="perm_write" eval="0"/>
         <field name="perm_create" eval="0"/>
         <field name="perm_unlink" eval="0"/>
     </record>
-    -->
+
+    <!-- Call - Voicemail access rule with notification logic for regular users -->
+    <record id="connect_call_voicemail_user_rule" model="ir.rule">
+        <field name="name">Connect Call: User Voicemail Access</field>
+        <field name="model_id" ref="connect.model_connect_call"/>
+        <field name="groups" eval="[(6, 0, [ref('group_connect_user')])]"/>
+        <field name="domain_force">['&amp;', ('voicemail_url', '!=', False), '|',
+                                  '&amp;', ('called_users', 'in', [user.id]),
+                                       '&amp;', ('answered_user', '=', False),
+                                       '&amp;', ('transferred_users', '=', False),
+                                       ('completed_by_user', '=', False),
+                                  '&amp;', ('transferred_users', 'in', [user.id]),
+                                       ('completed_by_user', '=', False)]</field>
+        <field name="perm_read" eval="1"/>
+        <field name="perm_write" eval="0"/>
+        <field name="perm_create" eval="0"/>
+        <field name="perm_unlink" eval="0"/>
+    </record>
 
     <!-- Channel -->
     <!-- COMMENTED OUT: Restrictive visibility - now using default search filters instead
