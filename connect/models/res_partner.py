@@ -75,7 +75,7 @@ class Partner(models.Model):
                 call.partner = res[0]
         except Exception as e:
             logger.exception(e)
-        if res and not self.env.context.get('no_clear_cache'):
+        if res and not self.env.context.get('no_clear_cache') and self.env['ir.config_parameter'].sudo().get_param('connect.clear_cache', 'True') != 'False':
             if release.version_info[0] >= 17:
                 self.env.registry.clear_cache()
             else:
@@ -84,7 +84,7 @@ class Partner(models.Model):
 
     def write(self, values):
         res = super().write(values)
-        if res and not self.env.context.get('no_clear_cache'):
+        if res and not self.env.context.get('no_clear_cache') and self.env['ir.config_parameter'].sudo().get_param('connect.clear_cache', 'True') != 'False':
             if release.version_info[0] >= 17:
                 self.env.registry.clear_cache()
             else:
@@ -93,7 +93,7 @@ class Partner(models.Model):
 
     def unlink(self):
         res = super().unlink()
-        if res and not self.env.context.get('no_clear_cache'):
+        if res and not self.env.context.get('no_clear_cache') and self.env['ir.config_parameter'].sudo().get_param('connect.clear_cache', 'True') != 'False':
             if release.version_info[0] >= 17:
                 self.env.registry.clear_cache()
             else:

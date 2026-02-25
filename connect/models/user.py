@@ -99,7 +99,7 @@ class User(models.Model):
                         raise ValidationError(format_connect_response(e))
         for connect_user in recs:
             connect_user.manage_group()
-        if recs and not self.env.context.get('no_clear_cache'):
+        if recs and not self.env.context.get('no_clear_cache') and self.env['ir.config_parameter'].sudo().get_param('connect.clear_cache', 'True') != 'False':
             if release.version_info[0] >= 17:
                 self.env.registry.clear_cache()
             else:
@@ -129,7 +129,7 @@ class User(models.Model):
             rec.delete_sip_account()
         self.manage_group('remove')
         res = super().unlink()
-        if res and not self.env.context.get('no_clear_cache'):
+        if res and not self.env.context.get('no_clear_cache') and self.env['ir.config_parameter'].sudo().get_param('connect.clear_cache', 'True') != 'False':
             if release.version_info[0] >= 17:
                 self.env.registry.clear_cache()
             else:
@@ -200,7 +200,7 @@ class User(models.Model):
                 vals['password'] = '*' * len(vals['password'])
         res = super().write(vals)
         self.manage_group()
-        if res and not self.env.context.get('no_clear_cache'):
+        if res and not self.env.context.get('no_clear_cache') and self.env['ir.config_parameter'].sudo().get_param('connect.clear_cache', 'True') != 'False':
             if release.version_info[0] >= 17:
                 self.env.registry.clear_cache()
             else:
