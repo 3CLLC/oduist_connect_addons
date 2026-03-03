@@ -522,10 +522,11 @@ class Settings(models.Model):
 
     @api.model_create_multi
     def create(self, vals_list):
-        if release.version_info[0] >= 17:
-            self.env.registry.clear_cache()
-        else:
-            self.clear_caches()
+        if self.env['ir.config_parameter'].sudo().get_param('connect.clear_cache', 'True') != 'False':
+            if release.version_info[0] >= 17:
+                self.env.registry.clear_cache()
+            else:
+                self.clear_caches()
         return super(Settings, self).create(vals_list)
 
     def write(self, vals):
@@ -552,10 +553,11 @@ class Settings(models.Model):
             # Set keys user super access.
             self.with_context(skip_protected_fields=True).sudo().write(changed_fields)
         # Reset cache
-        if release.version_info[0] >= 17:
-            self.env.registry.clear_cache()
-        else:
-            self.clear_caches()
+        if self.env['ir.config_parameter'].sudo().get_param('connect.clear_cache', 'True') != 'False':
+            if release.version_info[0] >= 17:
+                self.env.registry.clear_cache()
+            else:
+                self.clear_caches()
 
     @api.model
     def get_system_voice(self):
