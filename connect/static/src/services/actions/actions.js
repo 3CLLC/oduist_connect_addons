@@ -24,10 +24,13 @@ export const pbxActionService = {
 
     connect_handle_reload_view: function (message) {
         if (!this.action || !this.action.currentController) return
-        const action = this.action.currentController.action
-        if (action.res_model === message.model) {
-            routerBus.trigger("ROUTE_CHANGE")
-        }
+        const controller = this.action.currentController
+        if (controller.action.res_model !== message.model) return
+        // Form views may have unsaved edits. The mail bus refreshes the chatter
+        // automatically; stat buttons update on next navigation. Skip the
+        // destructive ROUTE_CHANGE and let Odoo's own mechanisms handle it.
+        if (controller.view?.type === 'form') return
+        routerBus.trigger("ROUTE_CHANGE")
     },
 
     connect_handle_notify: function ({title, message, sticky, warning}) {
